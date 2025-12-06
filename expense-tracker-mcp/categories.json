@@ -1,0 +1,142 @@
+{
+  "education": [
+    "tuition_fees",
+    "online_courses",
+    "books_supplies",
+    "workshops",
+    "coaching"
+  ],
+  "food_and_dining": [
+    "groceries",
+    "restaurants",
+    "snacks",
+    "cafes",
+    "fast_food"
+  ],
+  "transportation": [
+    "fuel",
+    "ride_hailing",
+    "public_transit",
+    "vehicle_maintenance",
+    "parking_fees"
+  ],
+  "housing": [
+    "rent",
+    "mortgage",
+    "utilities",
+    "home_maintenance",
+    "property_taxes"
+  ],
+  "health_and_fitness": [
+    "gym_membership",
+    "supplements",
+    "doctor_visits",
+    "medicines",
+    "fitness_classes"
+  ],
+  "entertainment": [
+    "movies",
+    "events_shows",
+    "streaming_services",
+    "games",
+    "subscriptions"
+  ],
+  "shopping": [
+    "clothing",
+    "electronics",
+    "accessories",
+    "home_goods",
+    "gifts"
+  ],
+  "personal_care": [
+    "salon_spa",
+    "skincare",
+    "haircare",
+    "cosmetics",
+    "personal_hygiene"
+  ],
+  "travel": [
+    "flights",
+    "hotels",
+    "local_transport",
+    "food_during_travel",
+    "tours_activities"
+  ],
+  "utilities": [
+    "electricity",
+    "water",
+    "internet",
+    "gas",
+    "mobile_bill"
+  ],
+  "financial_expenses": [
+    "bank_fees",
+    "interest_payments",
+    "fines",
+    "loan_emi",
+    "insurance_premiums"
+  ],
+  "business": [
+    "office_supplies",
+    "software",
+    "marketing",
+    "consulting",
+    "client_meetings"
+  ],
+  "family_and_kids": [
+    "childcare",
+    "toys",
+    "school_supplies",
+    "kids_clothing",
+    "activities"
+  ],
+  "pets": [
+    "food",
+    "veterinary_care",
+    "grooming",
+    "toys",
+    "accessories"
+  ],
+  "gifts_donations": [
+    "charity",
+    "festive_gifts",
+    "birthday_gifts",
+    "religious_donations",
+    "community_support"
+  ],
+  "investment": [
+    "stocks",
+    "crypto",
+    "mutual_funds",
+    "real_estate",
+    "savings"
+  ],
+  "maintenance": [
+    "home_repairs",
+    "vehicle_repairs",
+    "appliance_repair",
+    "plumbing",
+    "electrical_work"
+  ],
+  "technology": [
+    "software_subscriptions",
+    "cloud_storage",
+    "hardware",
+    "apps",
+    "online_services"
+  ],
+  "social_and_events": [
+    "parties",
+    "meetups",
+    "weddings",
+    "celebrations",
+    "networking_events"
+  ],
+  "miscellaneous": [
+    "unexpected_expenses",
+    "one_time_purchases",
+    "lost_items",
+    "late_fees",
+    "other_unclassified"
+  ]
+}
