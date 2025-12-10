@@ -1,6 +1,5 @@
 
 
-
 # Add HTTPS terminator + HSTS - pending ( Because of premium domain? )
 
 # AFTER FRONTEND AND PROJECT COMPETE THEN SOME ADVANCE THINGS IN BACKEND .........

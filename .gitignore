@@ -6,10 +6,11 @@ venv-bot-py311/
 __pycache__/
 *.pyc
 
-# Environment files
+# All files
 .env
 .env.*
 chatbot.db
 chatbot.db-wal
 security.py
 config.py
+logs.json
