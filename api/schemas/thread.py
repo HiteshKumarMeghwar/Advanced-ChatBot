@@ -3,10 +3,10 @@ from typing import Optional, List, Dict
 from datetime import datetime
 
 class ThreadBase(BaseModel):
-    title: Optional[str]
+    title: Optional[str] = "Untitled Thread"
 
 class ThreadCreate(ThreadBase):
-    user_id: int
+    user_id: Optional[int] = None
 
 class MessageSnippet(BaseModel):
     id: int

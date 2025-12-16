@@ -34,6 +34,7 @@ async def chat_endpoint(
 
     # 1. Save user message (direct, no HTTP!)
     await create_message_by_api(
+        request=request,
         thread_id=str(req.thread_id),
         role="user",
         content=req.query,
@@ -60,6 +61,7 @@ async def chat_endpoint(
 
     # ---- persist assistant reply ----------------------------------------------
     saved = await create_message_by_api(
+        request=request,
         thread_id=str(req.thread_id),
         role="assistant",
         content=content,

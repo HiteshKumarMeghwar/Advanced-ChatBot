@@ -11,6 +11,10 @@ from api.routes.chat import router as chat_router
 from api.routes.user_profile import router as user_router
 from api.routes.notification_status import router as notification_status_router
 from api.routes.user_tool_status import router as user_tool_status
+from api.routes.user_theme_change import router as user_theme_change
+from api.routes.user_tools_view import router as user_tools_view
+
+
 
 from graphs.chat_graph import build_graph
 from core.database import init_db
@@ -109,6 +113,9 @@ app.include_router(chat_router)
 app.include_router(user_router)
 app.include_router(notification_status_router)
 app.include_router(user_tool_status)
+app.include_router(user_theme_change)
+app.include_router(user_tools_view)
+
 
 
 @app.get("/")

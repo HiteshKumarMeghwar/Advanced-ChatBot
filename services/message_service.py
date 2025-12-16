@@ -1,10 +1,13 @@
 # services/message_service.py
+from fastapi import Request
 import httpx
 from core.config import INTERNAL_BASE_URL, INTERNAL_TIMEOUT
 from db.models import Message
 from datetime import datetime
 
 async def create_message_by_api(
+    *,
+    request: Request,
     thread_id: str,
     role: str,
     content: str,
@@ -26,7 +29,7 @@ async def create_message_by_api(
     }
 
     timeout = httpx.Timeout(INTERNAL_TIMEOUT)
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, cookies=request.cookies) as client:
         try:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()

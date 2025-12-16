@@ -1,15 +1,15 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.security import pwd_context
 from datetime import datetime, timedelta, timezone
 from services.limiting import limiter
 from sqlalchemy import select
-from jose import jwt
+from jose import JWTError, jwt
 import hashlib
 import secrets
 import json
 
-from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_THEME, FRONTEND_URL
+from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME
 from core.database import get_db
 from db.models import User, AuthToken, Tool, UserTool, UserSettings
 from api.schemas.user import UserCreate, UserLogin, Token, ForgotPassword, ResetPassword
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 # ---------- routes ----------
 @router.post("/signup", response_model=Token)
-async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def signup(user: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
     # 1. uniqueness check
     existing = await db.execute(
         User.__table__.select().where(User.email == user.email)
@@ -46,15 +46,22 @@ async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
     await _create_default_settings(db, new_user.id)
     await db.commit()          # commit the UserTool rows
 
-    # 3. create JWT + expiry
+    # 3. create JWT + expiry for access token ....................................
     access_token, expires_at = _create_access_token(data={"sub": str(new_user.id)})
+    # set cookie for access token ................................................
+    _set_token_cookie(response, access_token, expires_at, "access_token")
+
+    # for refresh token ..........................................................
+    refresh_token, refresh_expires_at = _create_refresh_token(data={"sub": str(new_user.id)})
+    # set cookie for refresh token ................................................
+    _set_token_cookie(response, refresh_token, refresh_expires_at, "refresh_token")
 
     # 4. store token hash in AuthToken
-    token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+    token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
     db_token = AuthToken(
         user_id=new_user.id,
         token_hash=token_hash,
-        expires_at=expires_at
+        expires_at=refresh_expires_at
     )
     db.add(db_token)
     await db.commit()
@@ -64,7 +71,7 @@ async def signup(user: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 @limiter.limit("5/minute;100/day")
-async def login(request: Request, user: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(request: Request, response: Response, user: UserLogin, db: AsyncSession = Depends(get_db)):
     stmt = select(User).where(User.email == user.email)
     result = await db.execute(stmt)
     db_user = result.scalar_one_or_none()
@@ -75,14 +82,22 @@ async def login(request: Request, user: UserLogin, db: AsyncSession = Depends(ge
     if not _verify_password(user.password, db_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    # create JWT + expiry for access token ....................................
     access_token, expires_at = _create_access_token(data={"sub": str(db_user.id)})
-    token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+    # set cookie for access token ................................................
+    _set_token_cookie(response, access_token, expires_at, "access_token")
 
+    # for refresh token ..........................................................
+    refresh_token, refresh_expires_at = _create_refresh_token(data={"sub": str(db_user.id)})
+    # set cookie for refresh token ................................................
+    _set_token_cookie(response, refresh_token, refresh_expires_at, "refresh_token")
+
+    token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
     # optional: reuse existing row or create new one each login
     db_token = AuthToken(
         user_id=db_user.id,
         token_hash=token_hash,
-        expires_at=expires_at
+        expires_at=refresh_expires_at
     )
     db.add(db_token)
     await db.commit()
@@ -91,16 +106,20 @@ async def login(request: Request, user: UserLogin, db: AsyncSession = Depends(ge
 
 
 @router.post("/logout", status_code=204)
-async def logout(request: Request, db: AsyncSession = Depends(get_db)):
-    # read bearer token from header
-    auth = request.headers.get("authorization")
-    if not auth or not auth.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing token")
-    token = auth.split(" ")[1]
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    # delete token record (or mark expired)
-    await db.execute(AuthToken.__table__.delete().where(AuthToken.token_hash == token_hash))
-    await db.commit()
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if refresh_token:
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        await db.execute(
+            AuthToken.__table__.delete().where(AuthToken.token_hash == token_hash)
+        )
+        await db.commit()
+
+    # clear cookie (set to empty with max_age=0)
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/")
+
     return None
 
 
@@ -152,6 +171,40 @@ async def reset_password(body: ResetPassword, db: AsyncSession = Depends(get_db)
     return {"detail": "Password updated successfully"}
 
 
+@router.post("/refresh")
+async def refresh_token(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+
+    if not refresh_token:
+        raise HTTPException(status_code=401)
+
+    # Decode & validate
+    try:
+        payload = jwt.decode(refresh_token, JWT_SECRET, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401)
+        user_id = int(payload["sub"])
+    except JWTError:
+        raise HTTPException(status_code=401)
+
+    # Check DB (revocation)
+    token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+    result = await db.execute(
+        select(AuthToken).where(AuthToken.token_hash == token_hash)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=401)
+
+    # Issue new access token
+    access_token, expires_at = _create_access_token({"sub": str(user_id)})
+    _set_token_cookie(response, access_token, expires_at, "access_token")
+
+    return {"success": True}
+
 
 # ---------- helpers ----------
 def _hash_password(password: str) -> str:
@@ -167,6 +220,45 @@ def _create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire})
     token = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
     return token, expire   # <-- return BOTH token and its expiry
+
+def _create_refresh_token(data: dict):
+    expire = datetime.now(timezone.utc) + timedelta(days=7)
+    to_encode = data.copy()
+    to_encode.update({
+        "exp": expire,
+        "type": "refresh"
+    })
+    token = jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
+    return token, expire
+
+# helper to set cookie
+def _set_token_cookie(response: Response, token: str, expires_at, flag: str):
+    if flag == "refresh_token":
+        max_age = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        response.set_cookie(
+            key=REFRESH_COOKIE_NAME,
+            value=token,
+            max_age=max_age,
+            expires=max_age,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite=COOKIE_SAMESITE,
+            path="/"
+        )
+
+    elif flag == "access_token":
+        # expires_at is a datetime (UTC)
+        max_age = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=token,
+            max_age=max_age,
+            expires=max_age,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite=COOKIE_SAMESITE,
+            path="/"
+        )
 
 
 async def _grant_tools_to_user(db: AsyncSession, user_id: int) -> None:

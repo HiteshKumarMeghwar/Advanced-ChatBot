@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List
 from core.database import get_db
 from db.models import Thread, User, Document, Message
-from api.schemas.thread import ThreadCreate, ThreadRead, ThreadDelete
+from api.schemas.thread import ThreadBase, ThreadRead, ThreadDelete
 from pydantic import UUID4
 from services.vector_db_faiss import FAISSVectorDB
 from api.dependencies import get_current_user
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/threads", tags=["Threads"])
 # ---------- create ----------
 @router.post("/create", response_model=ThreadRead, status_code=201)
 async def create_thread(
-    body: ThreadCreate,
+    body: ThreadBase,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

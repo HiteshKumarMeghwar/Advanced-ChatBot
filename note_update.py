@@ -1,5 +1,9 @@
 
 
+# I've just added cookie setting code in config.py
+
+
+
 # Add HTTPS terminator + HSTS - pending ( Because of premium domain? )
 
 # AFTER FRONTEND AND PROJECT COMPETE THEN SOME ADVANCE THINGS IN BACKEND .........
