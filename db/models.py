@@ -41,6 +41,11 @@ class Thread(Base):
 
     user = relationship("User", back_populates="threads")
     messages = relationship("Message", back_populates="thread", cascade="all,delete")
+    documents = relationship(
+        "Document",
+        back_populates="thread",
+        cascade="all,delete"
+    )
 
 class Message(Base):
     __tablename__ = "messages"
@@ -58,15 +63,19 @@ class Document(Base):
     __tablename__ = "documents"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    thread_id = Column(String(64), ForeignKey("threads.id", ondelete="SET NULL"), nullable=True)
+    thread_id = Column(String(64), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
     file_name = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(50), nullable=True)
-    sha256_hash = Column(CHAR(64), nullable=False, unique=True)
+    sha256_hash = Column(CHAR(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("thread_id", "sha256_hash", name="uq_thread_file"),
+    )
     status = Column(Enum('uploaded','processing','indexed','failed', name="doc_status"), nullable=False, server_default="uploaded")
     created_at = Column(DateTime(timezone=False), server_default=func.now())
 
     user = relationship("User", back_populates="documents")
+    thread = relationship("Thread", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all,delete")
     ingestion_jobs = relationship("IngestionJob", back_populates="document", cascade="all,delete")
 
@@ -85,6 +94,7 @@ class DocumentChunk(Base):
     __table_args__ = (
         UniqueConstraint('document_id', 'chunk_index', name='uq_document_chunk_index'),
     )
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
 class EmbeddingMetadata(Base):
     __tablename__ = "embeddings_metadata"
@@ -95,6 +105,7 @@ class EmbeddingMetadata(Base):
     created_at = Column(DateTime(timezone=False), server_default=func.now())
 
     chunk = relationship("DocumentChunk", back_populates="embedding")
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
 class IngestionJob(Base):
     __tablename__ = "ingestion_jobs"
@@ -106,6 +117,7 @@ class IngestionJob(Base):
     finished_at = Column(DateTime(timezone=False), nullable=True)
 
     document = relationship("Document", back_populates="ingestion_jobs")
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
 class QueryProvenance(Base):
     __tablename__ = "query_provenance"
@@ -117,6 +129,7 @@ class QueryProvenance(Base):
 
     message = relationship("Message", back_populates="provenance")
     chunk = relationship("DocumentChunk", back_populates="provenance_links")
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
 class AuthToken(Base):
     __tablename__ = "auth_tokens"

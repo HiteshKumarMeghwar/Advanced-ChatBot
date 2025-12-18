@@ -18,6 +18,27 @@ class MessageSnippet(BaseModel):
     class Config:
         from_attributes = True
 
+class DocumentSummary(BaseModel):
+    id: int
+    file_name: str
+    file_type: str | None
+    status: str
+    created_at: datetime
+    chunk_count: int
+
+    class Config:
+        from_attributes = True
+
+class ThreadReadWithDocs(ThreadBase):
+    id: str
+    user_id: int
+    created_at: datetime
+    messages: List[MessageSnippet] | None = None
+    documents: list[DocumentSummary] = []
+
+    class Config:
+        from_attributes = True
+
 class ThreadRead(ThreadBase):
     id: str
     user_id: int

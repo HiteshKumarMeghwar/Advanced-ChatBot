@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List
 from core.database import get_db
 from db.models import Thread, User, Document, Message
-from api.schemas.thread import ThreadBase, ThreadRead, ThreadDelete
+from api.schemas.thread import ThreadBase, ThreadRead, ThreadDelete, ThreadReadWithDocs
 from pydantic import UUID4
 from services.vector_db_faiss import FAISSVectorDB
 from api.dependencies import get_current_user
@@ -52,7 +52,7 @@ async def create_thread(
 
 
 # ---------- list all (scrolling ready) ----------
-@router.get("/show_all", response_model=List[ThreadRead])
+@router.get("/show_all", response_model=List[ThreadReadWithDocs])
 async def list_threads(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -63,13 +63,22 @@ async def list_threads(
         select(Thread)
         .where(Thread.user_id == user.id)
         .options(
-            selectinload(Thread.messages)  # important!!
+            selectinload(Thread.messages),  # important!!
+            selectinload(Thread.documents)
+            .selectinload(Document.chunks)   # only to count, not return
         )
         .order_by(Thread.created_at.desc())
     )
   
     result = await db.execute(stmt)
-    return result.scalars().all()
+    threads = result.scalars().unique().all()
+
+    # 🔥 attach chunk counts (no payload bloat)
+    for thread in threads:
+        for doc in thread.documents:
+            doc.chunk_count = len(doc.chunks)
+
+    return threads
 
 
 # ---------- single thread + messages ----------
@@ -138,8 +147,8 @@ async def delete_thread(
 
         # 3. delete vector index
         index_removed = False
-        if vector_db.exists(str(thread_id)):
-            vector_db.delete_thread_index(str(thread_id))
+        if await vector_db.exists(str(thread_id)):
+            await vector_db.delete_thread_index(str(thread_id))
             index_removed = True
 
         # 4. cascade delete child rows

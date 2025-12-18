@@ -19,5 +19,10 @@ class ChatModelCreator:
             task=model_task,
             temperature=temperature,
             max_new_tokens=max_new_tokens,
+            streaming=True,              # 🔥 THIS IS CRITICAL FOR STREAMING
+            return_full_text=False,      # ✅ avoids duplicated output
         )
-        self.generator_llm = ChatHuggingFace(llm=self.model_gen)
+        self.generator_llm = ChatHuggingFace(
+            llm=self.model_gen,
+            streaming=True,
+        )

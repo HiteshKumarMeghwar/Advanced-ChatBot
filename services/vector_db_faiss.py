@@ -136,3 +136,30 @@ class FAISSVectorDB:
     
     async def exists(self, thread_id: str) -> bool:
         return await aiofiles.os.path.exists(self._index_path(thread_id))
+    
+
+    async def rebuild_thread_index(
+        self,
+        thread_id: str,
+        documents: list[Document],
+    ) -> None:
+        """
+        Rebuild FAISS index for a thread using remaining documents.
+        """
+        index_path = self._index_path(thread_id)
+
+        def _sync_rebuild():
+            # remove old index completely
+            if index_path.exists():
+                shutil.rmtree(index_path)
+
+            if not documents:
+                return  # no docs left → no index
+
+            vs = FAISS.from_documents(
+                documents=documents,
+                embedding=self.embedder
+            )
+            vs.save_local(str(index_path))
+
+        await asyncio.to_thread(_sync_rebuild)

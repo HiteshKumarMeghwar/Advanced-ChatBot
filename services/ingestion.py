@@ -24,14 +24,21 @@ class DocumentIngestor:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def ingest_document(self, document: Document, vector_db: FAISSVectorDB):
+    async def ingest_document(
+        self,
+        document_id: int,
+        document_path: str,
+        document_name: str,
+        thread_id: str,
+        vector_db: FAISSVectorDB,
+    ):
         # Extract chunks asynchronously
-        text_chunks = await self._extract_chunks(document.file_path)
+        text_chunks = await self._extract_chunks(document_path)
 
         # persist chunks in MySQL
         db_chunks = [
             DocumentChunk(
-                document_id=document.id,
+                document_id=document_id,
                 chunk_index=idx,
                 text=chunk
             )
@@ -45,10 +52,10 @@ class DocumentIngestor:
             Document(
                 page_content=chunk,
                 metadata={
-                    "document_id": str(document.id),
+                    "document_id": str(document_id),
                     "chunk_index": str(idx),
                     "chunk_id": str(db_chunks[idx].id),
-                    "source":      document.file_name
+                    "source": document_name
                 }
             )
             for idx, chunk in enumerate(text_chunks)
@@ -56,7 +63,7 @@ class DocumentIngestor:
 
         # store in FAISS (thread isolated)
         await vector_db.add_documents(
-            thread_id=str(document.thread_id),
+            thread_id=str(thread_id),
             documents=lc_docs,
             db=self.db
         )

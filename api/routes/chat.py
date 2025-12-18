@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from api.dependencies import get_current_user
 from db.models import User, Thread
 from services.message_service import create_message_by_api
@@ -7,10 +8,84 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 from core.database import get_db
 from sqlalchemy import select
-from datetime import datetime
+import asyncio
+import json
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+@router.post("/stream")
+async def chat_stream_endpoint(
+    req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # 1. Validate thread
+    result = await db.execute(
+        select(Thread).where(
+            Thread.id == str(req.thread_id),
+            Thread.user_id == user.id
+        )
+    )
+    thread = result.scalar_one_or_none()
+    if not thread:
+        raise HTTPException(404, "Thread not found")
+
+    # 2. Save user message immediately
+    await create_message_by_api(
+        request=request,
+        thread_id=str(req.thread_id),
+        role="user",
+        content=req.query,
+    )
+
+    chatbot = request.app.state.chatbot
+
+    async def event_generator():
+        full_text = ""
+
+        async for event in chatbot.astream_events(
+            {"messages": [HumanMessage(content=req.query)]},
+            version="v1",
+            config={
+                "configurable": {
+                    "thread_id": str(req.thread_id),
+                    "request": request,
+                }
+            },
+        ):
+            print(event["event"])
+            # 🔑 THIS is the important part
+            if event["event"] in ("on_llm_stream", "on_chat_model_stream"):
+                chunk = event["data"]["chunk"]
+                token = getattr(chunk, "content", None)
+                if token:
+                    full_text += token
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+
+            await asyncio.sleep(0)
+
+        # 3. Save FINAL assistant message
+        await create_message_by_api(
+            request=request,
+            thread_id=str(req.thread_id),
+            role="assistant",
+            content=full_text,
+        )
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
 
 
 @router.post("/send", response_model=ChatResponse)
@@ -49,7 +124,15 @@ async def chat_endpoint(
         raise HTTPException(status_code=503, detail="Chat service not yet initialized")
     
     # Provide the thread_id in the config so chat_node can read it
-    final_state = await chatbot.ainvoke({"messages":[HumanMessage(content=req.query)]}, config={"configurable": {"thread_id": str(req.thread_id)}})
+    final_state = await chatbot.ainvoke(
+        {"messages":[HumanMessage(content=req.query)]}, 
+        config={
+            "configurable": {
+                "thread_id": str(req.thread_id),
+                "request": request,
+            }
+        }
+    )
 
     # ---- extract what we need ---------------------------------------------------
     last_msg   = final_state["messages"][-1]          # AIMessage
