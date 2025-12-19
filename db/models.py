@@ -13,6 +13,7 @@ class User(Base):
     name = Column(String(100), nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=True)
+    auth_provider = Column(String(50), default="local")  # local | google
     created_at = Column(DateTime(timezone=False), server_default=func.now())
 
     threads = relationship("Thread", back_populates="user", cascade="all,delete")

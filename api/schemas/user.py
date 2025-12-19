@@ -40,8 +40,10 @@ class UserLogin(BaseModel):
     password: str
 
 class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    access_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
+    email: Optional[EmailStr] = None
+    msg: Optional[bool] = None 
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None
@@ -49,10 +51,12 @@ class TokenData(BaseModel):
 
 class ForgotPassword(BaseModel):
     email: EmailStr
+    flag: str
 
 class ResetPassword(BaseModel):
     token: str
     new_password: str
+    flag: str
 
     # ------------- validators -------------
     @field_validator("new_password")

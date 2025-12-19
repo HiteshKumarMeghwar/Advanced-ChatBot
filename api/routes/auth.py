@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 from services.limiting import limiter
 from sqlalchemy import select
 from jose import JWTError, jwt
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 import hashlib
 import secrets
 import json
 
-from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME
+from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME, GOOGLE_CLIENT_ID
 from core.database import get_db
 from db.models import User, AuthToken, Tool, UserTool, UserSettings
 from api.schemas.user import UserCreate, UserLogin, Token, ForgotPassword, ResetPassword
@@ -132,14 +134,21 @@ async def forgot_password(body: ForgotPassword, db: AsyncSession = Depends(get_d
 
     token = secrets.token_urlsafe(32)
     await save_reset_token(user.id, token, ttl_sec=600)
-
-    reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
-    await send_email(
-        user.email,
-        "Reset your password",
-        f"Click the link (valid 10 min): {reset_url}"
-    )
-    return {"detail": "If the e-mail exists a reset link was sent."}
+    reset_url = f"{FRONTEND_URL}/reset-password?token={token}&flag={body.flag}"
+    if body.flag == "local":
+        await send_email(
+            user.email,
+            "Reset your password",
+            f"Click the link (valid 10 min): {reset_url}"
+        )
+        return {"detail": "If the e-mail exists a reset link was sent.", "access_token": token}
+    else:
+        await send_email(
+            user.email,
+            "Create your password",
+            f"Click the link (valid 10 min): {reset_url}"
+        )
+        return {"detail": "If the e-mail exists a create password link was sent.", "access_token": token}
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPassword, db: AsyncSession = Depends(get_db)):
@@ -168,7 +177,10 @@ async def reset_password(body: ResetPassword, db: AsyncSession = Depends(get_db)
 
     # single-use token
     await delete_token(body.token)
-    return {"detail": "Password updated successfully"}
+    if body.flag == "local":
+        return {"detail": "Password updated successfully"}
+    else:
+        return {"detail": "New password created successfully"}
 
 
 @router.post("/refresh")
@@ -204,6 +216,64 @@ async def refresh_token(
     _set_token_cookie(response, access_token, expires_at, "access_token")
 
     return {"success": True}
+
+
+@router.post("/google", response_model=Token)
+async def google_auth(
+    request: Request,
+    response: Response,
+    body: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    google_token = body.get("token")
+    if not google_token:
+        raise HTTPException(400, "Missing Google token")
+
+    payload = _verify_google_token(google_token)
+    if not payload:
+        raise HTTPException(401, "Invalid Google token")
+
+    email = payload["email"]
+    name = payload.get("name", email.split("@")[0])
+
+    # 1️⃣ find or create user
+    user = await db.scalar(select(User).where(User.email == email))
+
+    if not user:
+        user = User(
+            name=name,
+            email=email,
+            password_hash=None,
+            auth_provider="google"
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        await _grant_tools_to_user(db, user.id)
+        await _create_default_settings(db, user.id)
+        await db.commit()
+
+        # 2️⃣ issue tokens (same as normal login)
+        access_token, expires_at = _create_access_token({"sub": str(user.id)})
+        _set_token_cookie(response, access_token, expires_at, "access_token")
+
+        refresh_token, refresh_expires_at = _create_refresh_token({"sub": str(user.id)})
+        _set_token_cookie(response, refresh_token, refresh_expires_at, "refresh_token")
+
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        db.add(AuthToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=refresh_expires_at
+        ))
+        await db.commit()
+
+        return {"msg": True, "email": email, "access_token": access_token, "token_type": "bearer"}
+    
+    else:
+        return {"msg": False}
+
 
 
 # ---------- helpers ----------
@@ -259,6 +329,17 @@ def _set_token_cookie(response: Response, token: str, expires_at, flag: str):
             samesite=COOKIE_SAMESITE,
             path="/"
         )
+
+def _verify_google_token(token: str):
+    try:
+        info = id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
+        return info  # contains email, name, sub, picture
+    except Exception:
+        return None
 
 
 async def _grant_tools_to_user(db: AsyncSession, user_id: int) -> None:
