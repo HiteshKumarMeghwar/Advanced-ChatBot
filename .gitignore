@@ -1,6 +1,7 @@
 # Virtual environments
 venv/
 venv-bot-py311/
+uploads/
 
 # Python
 __pycache__/
