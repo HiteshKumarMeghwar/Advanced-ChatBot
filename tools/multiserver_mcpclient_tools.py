@@ -10,4 +10,8 @@ _client = MultiServerMCPClient(SERVERS)  # once, globally
 async def multiserver_mcpclient_tools() -> List[BaseTool]:
     
     """List all available MCP tools from your servers."""
-    return await _client.get_tools()
+    try:
+        return await _client.get_tools()
+    except Exception as e:
+        print(f"Warning: Failed to load MCP tools: {e}")
+        return []  # Return empty list on failure

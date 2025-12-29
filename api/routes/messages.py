@@ -22,7 +22,14 @@ async def create_message(
     Normal chat OR RAG chat (when tool_call=True).
     If RAG is used we fill QueryProvenance (citations).
     """
-    # 1. save the user message
+    
+    # Ensure tool_call is a list for consistency
+    if isinstance(message.tool_call, str):
+        tool_calls = [message.tool_call]
+    else:
+        tool_calls = message.tool_call or []
+
+    # 1. save the user/assistant message
     db_message = Message(
         thread_id=message.thread_id,
         role=message.role,

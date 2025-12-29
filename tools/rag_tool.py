@@ -12,15 +12,16 @@ async def rag_tool(query: str, config: RunnableConfig) -> dict:
     Retrieve relevant chunks from documents for this thread.
     Defensive: if thread_id missing/placeholder, log and return helpful diagnostic payload.
     """
-
-    thread_id = config.get("configurable", {}).get("thread_id")
-    request = config.get("configurable", {}).get("request")
+    
+    config = config or {}
+    thread_id = (config.get("configurable") or {}).get("thread_id") or {}
+    cookies = (config.get("configurable") or {}).get("cookies") or {}
 
     base = INTERNAL_BASE_URL.rstrip("/")
     timeout = httpx.Timeout(INTERNAL_TIMEOUT)
 
     # Proceed with vector backend calls
-    async with httpx.AsyncClient(timeout=timeout, cookies=request.cookies) as client:
+    async with httpx.AsyncClient(timeout=timeout, cookies=cookies) as client:
         # 1. index exists?
         try:
             exists = await client.head(f"{base}/vector/exists_index/{thread_id}")
@@ -83,4 +84,5 @@ async def rag_tool(query: str, config: RunnableConfig) -> dict:
     context = [h["content"] for h in hits]
     metadata = [h["metadata"] for h in hits]
     source_file = metadata[0].get("source") if metadata else None
+    logger.info(f"RAG tool result for query '{query}': {hits}")
     return {"query": query, "context": context, "metadata": metadata, "source_file": source_file}

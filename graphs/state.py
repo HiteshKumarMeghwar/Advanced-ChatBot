@@ -1,21 +1,50 @@
-from typing import TypedDict, List, Optional, Annotated
+# graphs/state.py
+from typing import Any, Dict, TypedDict, List, Optional, Annotated, Literal
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
+# class PendingToolCall(TypedDict):
+#     name: str
+#     args: Dict[str, Any]
+
 class ChatState(TypedDict):
+    # Identity
     thread_id: str
-    user_query: str
-    tool_call: Optional[str]
+    user_id: int
+
+    # canonical context container
+    context: Dict[str, Any]
+
+    meta: Dict[str, bool | int | float | str]
+
+    # Conversation
     messages: Annotated[list[BaseMessage], add_messages]
-    assistant_reply: Optional[str]
 
-    # JWT for internal calls
-    jwt: str
+    # Routing / Intent
+    intent: Optional[Literal["rag", "expense", "other_tool", "chat"]]
+    requires_human: bool
 
-    # Data returned by RAG tool
-    tool_response: Optional[dict]
+    # RAG
+    rag_query: Optional[str]
+    rag_result: Optional[dict]
 
-    # Optional extracted convenience fields
-    context: Optional[List[str]]
-    metadata: Optional[List[dict]]
-    source_file: Optional[str]
+    # 🔒 Expense lifecycle
+    expense_draft: Optional[Dict[str, Any]]
+    expense_search: Optional[Dict[str, Any]]
+    expense_update: Optional[Dict[str, Any]]
+    expense_confirmed: Optional[bool]
+    # MCP (Expenses)
+    expense_action: Optional[Literal["record_expense", "record_credit", "update_expense", "remove_expense", "list_user_expenses", "list_cat_subcat_expense", "summarize_user_expenses"]]
+    expense_candidates: Optional[list[dict]]
+    selected_expense_id: Optional[int]
+    hitl_reason: Optional[str]
+    pending_confirmation: bool
+
+
+    # Tool bookkeeping
+    last_tool: Optional[str]
+    # pending_tool_call: Optional[PendingToolCall]
+    tool_call: Optional[str]
+
+    # Evaluation / Guardrails
+    safety_flags: Optional[List[str]]

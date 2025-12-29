@@ -11,7 +11,7 @@ async def get_stock_price(symbol: str, config: RunnableConfig) -> dict:
 
     """Fetch latest stock price for a symbol via Alpha-Vantage."""
 
-    request = config.get("configurable", {}).get("request")
+    cookies = (config.get("configurable") or {}).get("cookies") or {}
 
     base = ALPHAVANTAGE_BASE_URL.rstrip("/")
     timeout = httpx.Timeout(INTERNAL_TIMEOUT)
@@ -21,7 +21,7 @@ async def get_stock_price(symbol: str, config: RunnableConfig) -> dict:
         "apikey": ALPHAVANTAGE_API_KEY
     }
 
-    async with httpx.AsyncClient(timeout=timeout, cookies=request.cookies) as client:
+    async with httpx.AsyncClient(timeout=timeout, cookies=cookies) as client:
         try:
             r = await client.get(base, params=params)
             r.raise_for_status()

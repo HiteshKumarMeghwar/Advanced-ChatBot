@@ -1,4 +1,6 @@
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+from langchain_groq import ChatGroq
+from core.config import GROQ_API_KEY
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -9,8 +11,10 @@ class ChatModelCreator:
         self, 
         model_name: str, 
         model_task: str,
-        temperature: float = 0.7,
+        temperature: float = 0,
         max_new_tokens: int = 1024,
+        streaming: bool = True,
+        # condition: str = "groq"
     ):
 
         # use the endpoint you already configured
@@ -19,10 +23,18 @@ class ChatModelCreator:
             task=model_task,
             temperature=temperature,
             max_new_tokens=max_new_tokens,
-            streaming=True,              # 🔥 THIS IS CRITICAL FOR STREAMING
+            streaming=streaming,              # 🔥 THIS IS CRITICAL FOR STREAMING
             return_full_text=False,      # ✅ avoids duplicated output
         )
         self.generator_llm = ChatHuggingFace(
             llm=self.model_gen,
-            streaming=True,
+            streaming=streaming,
+        )
+
+        self.groq_generator_llm = ChatGroq(
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_new_tokens,        # ← Groq uses max_tokens
+            streaming=streaming,
+            groq_api_key=GROQ_API_KEY,  # Set this in .env
         )

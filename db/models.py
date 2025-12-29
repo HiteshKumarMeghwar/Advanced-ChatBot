@@ -3,8 +3,9 @@ from sqlalchemy import (
     Column, Integer, BigInteger, String, Text, DateTime, Enum, ForeignKey,
     JSON, Boolean, Float, func, UniqueConstraint, CHAR
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from .database import Base
+import enum
 
 
 class User(Base):
@@ -183,3 +184,74 @@ class UserSettings(Base):
     preferred_tools = Column(JSON, nullable=True)  # array of tool ids or names
 
     user = relationship("User", back_populates="settings")
+
+
+
+
+# ***********************  EXPENSE-TRACKER-MCP ***********************************
+
+class ExpenseCategory(Base):
+    __tablename__ = "expense_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+
+    subcategories = relationship(
+        "ExpenseSubCategory",
+        back_populates="category",
+        cascade="all, delete-orphan",
+    )
+
+class ExpenseSubCategory(Base):
+    __tablename__ = "expense_subcategories"
+    __table_args__ = (
+        UniqueConstraint("category_id", "name", name="uq_category_subcategory"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_categories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+
+    category = relationship("ExpenseCategory", back_populates="subcategories")
+
+
+class ExpenseType(enum.Enum):
+    debit = "debit"
+    credit = "credit"
+
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    user_id: Mapped[BigInteger] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+
+    date: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+
+    category_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_categories.id"), nullable=False
+    )
+    subcategory_id: Mapped[int] = mapped_column(
+        ForeignKey("expense_subcategories.id"), nullable=False
+    )
+
+    note: Mapped[str] = mapped_column(String(255), default="")
+    type: Mapped[ExpenseType] = mapped_column(
+        Enum(ExpenseType), default=ExpenseType.debit
+    )
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+
+    user = relationship("User")
+    category = relationship("ExpenseCategory")
+    subcategory = relationship("ExpenseSubCategory")

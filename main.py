@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,10 +14,12 @@ from api.routes.notification_status import router as notification_status_router
 from api.routes.user_tool_status import router as user_tool_status
 from api.routes.user_theme_change import router as user_theme_change
 from api.routes.user_tools_view import router as user_tools_view
+from api.routes.expense_categories import router as expense_categories_router
 
 
-
-from graphs.chat_graph import build_graph
+from contextlib import AsyncExitStack
+from langgraph.checkpoint.redis import AsyncRedisSaver
+from graphs.meghx_graph import build_graph
 from core.database import init_db
 from db.database import AsyncSessionLocal
 from contextlib import asynccontextmanager
@@ -45,17 +48,27 @@ async def lifespan(app: FastAPI):
     # Initialize tables (Alembic recommended but this works)
     await init_db()
 
-    # Create a session for graph initialization
-    async with AsyncSessionLocal() as session:
+    async with AsyncExitStack() as stack:   # guarantees __aexit__ is called
         try:
-            logger.info("Building chatbot graph (async)...")
-            app.state.chatbot = await build_graph(session)
-            logger.info("Chatbot graph READY.")
+            redis_cm = AsyncRedisSaver.from_conn_string(
+                "redis://localhost:6380/0",
+                ttl={"default_ttl": 60*60*24}
+            )
+            # enter the context-manager once, keep the real saver
+            redis_saver = await stack.enter_async_context(redis_cm)
+            logger.info("Redis check-pointer active")
         except Exception as exc:
-            logger.exception("Graph startup error: %s", exc)
-            raise
+            # print the FULL exception instead of the generic message
+            logger.exception("Redis unavailable - running stateless: %s", exc)
+            redis_saver = None
 
-    yield
+        # build the graph **with** the saver (or None)
+        async with AsyncSessionLocal() as session:
+            raw_graph = await build_graph(session, checkpointer=redis_saver)
+            app.state.chatbot = raw_graph.compile(checkpointer=redis_saver)
+            logger.info("Chatbot graph READY")
+
+        yield     # <- FastAPI is now serving requests
 
     # On shutdown
     if hasattr(app.state, "chatbot"):
@@ -115,9 +128,20 @@ app.include_router(notification_status_router)
 app.include_router(user_tool_status)
 app.include_router(user_theme_change)
 app.include_router(user_tools_view)
+app.include_router(expense_categories_router)
 
 
 
 @app.get("/")
 async def root():
     return {"status": "running", "engine": "Async RAG backend initialized"}
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="debug"
+    )

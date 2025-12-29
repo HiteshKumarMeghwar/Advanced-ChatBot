@@ -20,22 +20,25 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 WORKDIR /code
 COPY requirements_linux.txt .
 
-# Includes slowapi, loguru, alembic etc
-RUN uv pip install \
-    --python /usr/local/bin/python \
+RUN pip install \
     --no-cache-dir \
-    --default-timeout 300 \
+    --default-timeout=600 \
     --retries 5 \
     -r requirements_linux.txt
-
 
 
 # =============================
 # copy full app source
 # =============================
 COPY . .
-COPY expense-tracker-mcp /code/expense-tracker-mcp
 RUN chmod +x /code/expense-tracker-mcp/main.py
+
+
+# --------------- install Node (needed for many MCP servers) ---------------
+RUN apt-get update && apt-get install -y curl \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y nodejs \
+ && npm install -g npm@latest
 
 
 # =============================

@@ -1,8 +1,44 @@
 services:
   fastapi:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: advanced-chatbot-fastapi:latest      # cache-friendly tag
     container_name: fastapi
     ports:
       - "8000:8000"
-    restart: unless-stopped
     env_file: .env
+    volumes:                                    # hot-reload in dev
+      - ./:/code
+    depends_on:                                 # remove if you don’t use Redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---- optional: Redis for LangGraph checkpointer ----
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:

@@ -1,4 +1,5 @@
 # services/message_service.py
+from typing import List, Union
 from fastapi import Request
 import httpx
 from core.config import INTERNAL_BASE_URL, INTERNAL_TIMEOUT
@@ -11,8 +12,8 @@ async def create_message_by_api(
     thread_id: str,
     role: str,
     content: str,
-    json_metadata: dict | None = None,
-    tool_call: str | None = None,
+    json_metadata: dict | list | None = None,
+    tool_call: Union[str, List[str], None] = None,
 ) -> Message:
     """
     Persist a message via internal HTTP call /messages/create
