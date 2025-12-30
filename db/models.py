@@ -147,7 +147,7 @@ class Tool(Base):
     __tablename__ = "tools"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False, unique=True)
-    description = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
     status = Column(
         Enum('active', 'inactive', name="tool_status"),
         nullable=False,

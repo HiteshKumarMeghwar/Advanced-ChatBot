@@ -15,9 +15,11 @@ from api.routes.user_tool_status import router as user_tool_status
 from api.routes.user_theme_change import router as user_theme_change
 from api.routes.user_tools_view import router as user_tools_view
 from api.routes.expense_categories import router as expense_categories_router
+from api.routes.mcp import router as mcp_router
 
 
 from contextlib import AsyncExitStack
+from services.mcp_bootstrap import bootstrap_mcp_servers
 from langgraph.checkpoint.redis import AsyncRedisSaver
 from graphs.meghx_graph import build_graph
 from core.database import init_db
@@ -44,6 +46,9 @@ logger.add("logs.json", serialize=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    # Bootstrap MCP servers (ONE TIME, safe)
+    bootstrap_mcp_servers()
 
     # Initialize tables (Alembic recommended but this works)
     await init_db()
@@ -129,6 +134,7 @@ app.include_router(user_tool_status)
 app.include_router(user_theme_change)
 app.include_router(user_tools_view)
 app.include_router(expense_categories_router)
+app.include_router(mcp_router)
 
 
 

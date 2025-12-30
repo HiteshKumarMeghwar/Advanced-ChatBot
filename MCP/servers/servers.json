@@ -1,0 +1,22 @@
+{
+  "expense": {
+    "transport": "stdio",
+    "command": "uv",
+    "args": [
+      "run",
+      "--with",
+      "fastmcp",
+      "fastmcp",
+      "run",
+      "C:\\Users\\DEVELOPER-\\Desktop\\Advanced-ChatBot\\MCP\\servers\\expense-tracker-mcp\\main.py"
+    ]
+  },
+  "math": {
+    "transport": "streamable_http",
+    "url": "https://test-remote-server2323.fastmcp.app/mcp"
+  },
+  "exa-web": {
+    "transport": "streamable_http",
+    "url": "https://mcp.exa.ai/web"
+  }
+}

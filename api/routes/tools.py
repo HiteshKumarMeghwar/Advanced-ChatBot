@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from api.dependencies import get_current_user
+from core.config import USAGE_LIMIT
 from core.database import get_db
-from db.models import Tool
-from sqlalchemy import select
+from db.models import Tool, User, UserTool
+from sqlalchemy import delete, select
 from tools.gather_tools import gather_tools
+from tools.multiserver_mcpclient_tools import multiserver_mcpclient_tools
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 

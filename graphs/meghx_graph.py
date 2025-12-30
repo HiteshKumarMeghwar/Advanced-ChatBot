@@ -2,7 +2,7 @@
 from langchain_core.messages import SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 
-from graphs.bind_tool_with_llm import groq_with_tools_llm
+from graphs.bind_tool_with_llm import groq_with_tools_llm, groq_without_tool_llm
 from graphs.parent_graph import build_graph_parent
 from graphs.state import ChatState
 from core.config import LLM_TIMEOUT
@@ -288,6 +288,15 @@ async def meghx_node(state: ChatState, config=None):
     except asyncio.TimeoutError:
         logger.error("LLM call timed out")
         response = AIMessage(content="⚠️ Sorry, the assistant is temporarily unavailable.")
+    except Exception as e:
+        if "tool call validation failed" in str(e):
+            logger.warning("Invalid tool call detected, falling back to chat LLM")
+            response = await groq_generator_llm.ainvoke(msgs, config=config, timeout=LLM_TIMEOUT)
+        else:
+            logger.exception("Unhandled LLM exception")
+            response = AIMessage(
+                content="⚠️ Sorry, the assistant is temporarily unavailable."
+            )
 
     state["messages"].append(response)
     last_msg = state["messages"][-1]
@@ -321,8 +330,9 @@ async def build_graph(db_session=None, checkpointer=None):
     Build and return the compiled graph. Accepts a DB session (no Depends) so callers
     (like main.lifespan) can pass a real session.
     """
-    global groq_llm_with_tools
+    global groq_llm_with_tools, groq_generator_llm
     groq_llm_with_tools = await groq_with_tools_llm()
+    groq_generator_llm = await groq_without_tool_llm()
 
     graph = StateGraph(ChatState)
     
