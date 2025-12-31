@@ -17,6 +17,10 @@ class ChatState(TypedDict):
 
     meta: Dict[str, bool | int | float | str]
 
+    # llm variables
+    llm_with_tools: str
+    llm_without_tools: str
+
     # Conversation
     messages: Annotated[list[BaseMessage], add_messages]
 

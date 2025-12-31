@@ -16,6 +16,8 @@ from api.routes.user_theme_change import router as user_theme_change
 from api.routes.user_tools_view import router as user_tools_view
 from api.routes.expense_categories import router as expense_categories_router
 from api.routes.mcp import router as mcp_router
+from api.routes.voice import router as voice_router
+from api.routes.vision import router as image_router
 
 
 from contextlib import AsyncExitStack
@@ -135,6 +137,8 @@ app.include_router(user_theme_change)
 app.include_router(user_tools_view)
 app.include_router(expense_categories_router)
 app.include_router(mcp_router)
+app.include_router(voice_router)
+app.include_router(image_router)
 
 
 

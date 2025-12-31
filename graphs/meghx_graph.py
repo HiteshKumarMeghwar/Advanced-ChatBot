@@ -2,12 +2,17 @@
 from langchain_core.messages import SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 
+from db.database import AsyncSessionLocal
+from db.models import User
 from graphs.bind_tool_with_llm import groq_with_tools_llm, groq_without_tool_llm
 from graphs.parent_graph import build_graph_parent
 from graphs.state import ChatState
 from core.config import LLM_TIMEOUT
 import logging
 import asyncio
+
+from services.filter_allowed_tools import filter_allowed_tools
+from tools.gather_tools import gather_tools
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +287,19 @@ async def meghx_node(state: ChatState, config=None):
 
 
     msgs = [system_message, *state["messages"][-5:]]
+    user_id = config.get("configurable", {}).get("user_id")
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        tools = await gather_tools()
+        allowed_tools = await filter_allowed_tools(
+            tools,
+            db=db,
+            user=user,
+    )
+
+    groq_llm_with_tools = await groq_with_tools_llm(allowed_tools)
+    groq_generator_llm = await groq_without_tool_llm()
 
     try:
         response = await asyncio.wait_for(groq_llm_with_tools.ainvoke(msgs, config=config), timeout=LLM_TIMEOUT)
@@ -300,27 +318,39 @@ async def meghx_node(state: ChatState, config=None):
 
     state["messages"].append(response)
     last_msg = state["messages"][-1]
-    user_id = config.get("configurable", {}).get("user_id")
 
     if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
-        for call in last_msg.tool_calls:
-            args = call.get("args") or {}
+        tool_calls = last_msg.tool_calls
 
-            # New structured contract: search_args + update_args
-            if (
-                isinstance(args, dict)
-                and "search_args" in args
-                and "update_args" in args
-                and isinstance(args.get("search_args"), dict)
-                and isinstance(args.get("update_args"), dict)
-            ):
-                args["search_args"]["user_id"] = user_id
-                args["update_args"]["user_id"] = user_id
+        # Normalize tool_calls → list
+        if isinstance(tool_calls, dict):
+            tool_calls = [tool_calls]
+        elif not isinstance(tool_calls, list):
+            tool_calls = []
 
-            # Legacy / flat args fallback
-            elif isinstance(args, dict):
-                args.setdefault("user_id", user_id)
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+
+            args = call.get("args")
+
+            if not isinstance(args, dict):
+                continue
+
+            # ✅ New structured contract: search_args + update_args
+            search_args = args.get("search_args")
+            update_args = args.get("update_args")
+
+            if isinstance(search_args, dict) and isinstance(update_args, dict):
+                search_args["user_id"] = user_id
+                update_args["user_id"] = user_id
+
+            # ✅ Legacy / flat args fallback
+            else:
+                args["user_id"] = user_id
+
     return state
+
 
 
 
@@ -330,9 +360,6 @@ async def build_graph(db_session=None, checkpointer=None):
     Build and return the compiled graph. Accepts a DB session (no Depends) so callers
     (like main.lifespan) can pass a real session.
     """
-    global groq_llm_with_tools, groq_generator_llm
-    groq_llm_with_tools = await groq_with_tools_llm()
-    groq_generator_llm = await groq_without_tool_llm()
 
     graph = StateGraph(ChatState)
     
