@@ -12,6 +12,7 @@ class MessageSnippet(BaseModel):
     id: int
     role: str
     content: str
+    image_url: Optional[str] = None
     json_metadata: Optional[Dict] = None
     created_at: datetime
 

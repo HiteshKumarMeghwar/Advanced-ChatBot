@@ -1,3 +1,4 @@
+import asyncio
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -18,21 +19,28 @@ from api.routes.expense_categories import router as expense_categories_router
 from api.routes.mcp import router as mcp_router
 from api.routes.voice import router as voice_router
 from api.routes.vision import router as image_router
+from api.routes.user_memory_settings import router as user_memory_settings
 
 
 from contextlib import AsyncExitStack
+from core.config import CHAT_MODEL, CHAT_MODEL_TEXT
+from services.chat_model import ChatModelCreator
 from services.mcp_bootstrap import bootstrap_mcp_servers
+from services.memory_maintenance import start_background_maintenance
 from langgraph.checkpoint.redis import AsyncRedisSaver
 from graphs.meghx_graph import build_graph
+from tools.gather_tools import gather_tools
 from core.database import init_db
 from db.database import AsyncSessionLocal
 from contextlib import asynccontextmanager
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from services.limiting import limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
+from tools.tool_registry import ToolRegistry
 
 
 logger.add("logs.json", serialize=True)
@@ -69,18 +77,63 @@ async def lifespan(app: FastAPI):
             logger.exception("Redis unavailable - running stateless: %s", exc)
             redis_saver = None
 
-        # build the graph **with** the saver (or None)
-        async with AsyncSessionLocal() as session:
-            raw_graph = await build_graph(session, checkpointer=redis_saver)
-            app.state.chatbot = raw_graph.compile(checkpointer=redis_saver)
-            logger.info("Chatbot graph READY")
+        try:
+            # build the graph **with** the saver (or None)
+            async with AsyncSessionLocal() as session:
+                raw_graph = await build_graph(session, checkpointer=redis_saver)
+                app.state.chatbot = raw_graph.compile(checkpointer=redis_saver)
+                logger.info("Chatbot graph READY")
+        except Exception as exc:
+            logger.exception("Background Memory Maintenance issue -: %s", exc)
+
+        try:
+            await start_background_maintenance(app)
+            logger.info("Background - Memory Maintenance Start.")
+        except Exception as exc:
+            logger.exception("Background Memory Maintenance issue -: %s", exc)
+
+        try:
+            app.state.llms = {
+                "chat_base": ChatModelCreator(model_name=CHAT_MODEL, model_task=CHAT_MODEL_TEXT).groq_generator_llm,
+                "system": ChatModelCreator(model_name=CHAT_MODEL, model_task=CHAT_MODEL_TEXT, streaming=False).groq_generator_llm,
+            }
+            logger.info("LLMs Started.")
+        except Exception as exc:
+            logger.exception("LLM Initialization issue -: %s", exc)
+
+        try:
+            app.state.tool_registry = ToolRegistry()
+            all_tools = await gather_tools()
+            await app.state.tool_registry.refresh(all_tools)
+            logger.info("Tool registry initialized (version=%s)", app.state.tool_registry.version)
+        except Exception as exc:
+            logger.exception("Tools Initiating issue -: %s", exc)
+
 
         yield     # <- FastAPI is now serving requests
+
 
     # On shutdown
     if hasattr(app.state, "chatbot"):
         app.state.chatbot = None
         logger.info("Chatbot graph released.")
+    
+    if hasattr(app.state, "llms"):
+        app.state.llms = None
+        logger.info("LLMs released.")
+
+    if hasattr(app.state, "llms"):
+        app.state.tool_registry = None
+        logger.info("Tool registry released.")
+    
+    if hasattr(app.state, "memory_maintenance_task"):
+        app.state.memory_maintenance_shutdown = True
+        app.state.memory_maintenance_task.cancel()
+        logger.info("Background - Memory Maintenance shutdown.")
+        try:
+            await app.state.memory_maintenance_task
+        except asyncio.CancelledError:
+            pass
 
 
 # FastAPI app
@@ -123,6 +176,13 @@ async def rate_limit_handler(request, exc):
 async def health():
     return {"status": "ok"}
 
+
+app.mount(
+    "/media_ocr/images",
+    StaticFiles(directory="images_ocr"),
+    name="images",
+)
+
 app.include_router(auth_router)
 app.include_router(threads_router)
 app.include_router(messages_router)
@@ -139,6 +199,7 @@ app.include_router(expense_categories_router)
 app.include_router(mcp_router)
 app.include_router(voice_router)
 app.include_router(image_router)
+app.include_router(user_memory_settings)
 
 
 

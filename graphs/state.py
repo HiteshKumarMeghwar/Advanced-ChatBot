@@ -52,3 +52,10 @@ class ChatState(TypedDict):
 
     # Evaluation / Guardrails
     safety_flags: Optional[List[str]]
+
+
+    # LTM memory system ....
+    episodic_memories: Optional[list[dict]]
+    semantic_memories: Optional[list[dict]]
+    procedural_memories: Optional[list[str]]
+    long_history_memories: Optional[list[str]]

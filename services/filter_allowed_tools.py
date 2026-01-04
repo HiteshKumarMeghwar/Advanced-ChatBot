@@ -1,13 +1,13 @@
 from typing import List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import User, Tool, UserTool
+from db.models import Tool, UserTool
 
 
 async def filter_allowed_tools(
     gathered_tools: List,
     db: AsyncSession,
-    user: User,
+    user_id: int,
 ) -> List:
     """
     Enforces enterprise tool governance.
@@ -31,7 +31,7 @@ async def filter_allowed_tools(
         .where(
             Tool.name.in_(gathered_map.keys()),
             Tool.status == "active",
-            UserTool.user_id == user.id,
+            UserTool.user_id == user_id,
             UserTool.status == "allowed",
         )
     )

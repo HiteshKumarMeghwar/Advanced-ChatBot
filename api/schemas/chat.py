@@ -5,6 +5,7 @@ from typing import Optional, Union
 class ChatRequest(BaseModel):
     thread_id: UUID4
     query: str
+    image_url: Optional[str] = None
 
 class ChatResponse(BaseModel):
     role: str

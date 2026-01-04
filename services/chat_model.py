@@ -11,7 +11,7 @@ class ChatModelCreator:
         self, 
         model_name: str, 
         model_task: str,
-        temperature: float = 0,
+        temperature: float = 0.0,
         max_new_tokens: int = 1024,
         streaming: bool = True,
         # condition: str = "groq"

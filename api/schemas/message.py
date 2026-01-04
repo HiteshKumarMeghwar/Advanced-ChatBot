@@ -5,6 +5,7 @@ from datetime import datetime
 class MessageBase(BaseModel):
     role: str
     content: Optional[str] = None
+    image_url: Optional[str] = None
     json_metadata: Optional[Dict] = None
 
 class MessageCreate(MessageBase):

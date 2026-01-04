@@ -98,6 +98,7 @@ async def get_thread(
                 Message.thread_id,
                 Message.role,
                 Message.content,
+                Message.image_url,
                 Message.json_metadata,
                 Message.created_at,
             )

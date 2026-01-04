@@ -11,9 +11,9 @@ import hashlib
 import secrets
 import json
 
-from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME, GOOGLE_CLIENT_ID
+from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_MEMORY_DEFAULTS, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME, GOOGLE_CLIENT_ID
 from core.database import get_db
-from db.models import User, AuthToken, Tool, UserTool, UserSettings
+from db.models import User, AuthToken, Tool, UserMemorySetting, UserTool, UserSettings
 from api.schemas.user import UserCreate, UserLogin, Token, ForgotPassword, ResetPassword
 from services.redis import save_reset_token, get_reset_user, delete_token
 from services.mail import send_email
@@ -25,7 +25,13 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 # ---------- routes ----------
 @router.post("/signup", response_model=Token)
-async def signup(user: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute;100/day")
+async def signup(
+    request: Request,
+    user: UserCreate, 
+    response: Response, 
+    db: AsyncSession = Depends(get_db)
+):
     # 1. uniqueness check
     existing = await db.execute(
         User.__table__.select().where(User.email == user.email)
@@ -45,7 +51,11 @@ async def signup(user: UserCreate, response: Response, db: AsyncSession = Depend
 
     # ---- grant tools ----
     await _grant_tools_to_user(db, new_user.id)
+    # ---- grant default settings ----
     await _create_default_settings(db, new_user.id)
+    # ---- grant memory settings ----
+    await _create_default_memory_settings(db, new_user.id)
+    
     await db.commit()          # commit the UserTool rows
 
     # 3. create JWT + expiry for access token ....................................
@@ -73,7 +83,12 @@ async def signup(user: UserCreate, response: Response, db: AsyncSession = Depend
 
 @router.post("/login", response_model=Token)
 @limiter.limit("5/minute;100/day")
-async def login(request: Request, response: Response, user: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(
+    request: Request, 
+    response: Response, 
+    user: UserLogin, 
+    db: AsyncSession = Depends(get_db)
+):
     stmt = select(User).where(User.email == user.email)
     result = await db.execute(stmt)
     db_user = result.scalar_one_or_none()
@@ -374,3 +389,11 @@ async def _create_default_settings(db: AsyncSession, user_id: int) -> None:
         notification_enabled=True,
         preferred_tools=json.dumps(active_tools),   # ← real names from DB
     ))
+    
+
+async def _create_default_memory_settings(db: AsyncSession, user_id: int) -> None:
+    settings = UserMemorySetting(
+        user_id=user_id,
+        **USER_MEMORY_DEFAULTS,
+    )
+    db.add(settings)

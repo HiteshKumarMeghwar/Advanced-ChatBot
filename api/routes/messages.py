@@ -34,6 +34,7 @@ async def create_message(
         thread_id=message.thread_id,
         role=message.role,
         content=message.content,
+        image_url=message.image_url,
         json_metadata=message.json_metadata,
     )
     db.add(db_message)

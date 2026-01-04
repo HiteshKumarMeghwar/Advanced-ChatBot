@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from langgraph.graph import StateGraph, START, END
 from core.config import EXPENSE_TOOL_NAMES
@@ -21,9 +22,11 @@ async def expense_router(state: ChatState):
 # -----------------------------
 # NODE: MAKING DRAFT FOR ADD/UPDATE/DELETE
 # -----------------------------
-async def expense_draft_data(state: ChatState):
+async def expense_draft_data(state: ChatState, config=None):
     """Route and prepare draft for create/update flows."""
     
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
     action = state.get("expense_action")
 
     # Prepare draft for create actions
@@ -53,6 +56,11 @@ async def expense_draft_data(state: ChatState):
             state["expense_search"] = args_search
             state["expense_update"] = args_update_or_add
 
+    trace["events"].append({
+        "node": "expense_draft_data",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
+
     return state
 
 
@@ -66,6 +74,8 @@ async def expense_agent(state: ChatState, config=None):
     """
     config = config or {}
     user_id = config.get("configurable", {}).get("user_id")
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
 
     if not user_id:
         state["messages"].append(
@@ -150,6 +160,10 @@ async def expense_agent(state: ChatState, config=None):
                     }]
                 )
             )
+            trace["events"].append({
+                "node": "expense_agent",
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+            })
             return state
         
         # If multiple candidates exist → HITL
@@ -192,8 +206,17 @@ async def expense_agent(state: ChatState, config=None):
         )
         # No candidates/ID: force find first
         state["last_tool"] = "find_expenses"
+        trace["events"].append({
+            "node": "expense_agent",
+            "latency_ms": (time.perf_counter() - t0) * 1000,
+        })
         return state
     
+
+    trace["events"].append({
+        "node": "expense_agent",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
     # Fallback: no action matched
     return state
 
@@ -201,11 +224,12 @@ async def expense_agent(state: ChatState, config=None):
 # --------------------------------------------------
 # NODE: HITL Resume (NO CONFIG MAGIC)
 # --------------------------------------------------
-async def expense_resume(state: ChatState):
+async def expense_resume(state: ChatState, config=None):
     """
     Resumes graph after human reply using messages[-1]
     """
-    
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
     last_user_msg = state["messages"][-1]
     if not isinstance(last_user_msg, HumanMessage):
         return state
@@ -237,6 +261,10 @@ async def expense_resume(state: ChatState):
                     }]
                 )
             )
+            trace["events"].append({
+                "node": "expense_resume",
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+            })
             return state
         elif "no" in text or "cancel" in text:
             state["expense_confirmed"] = False
@@ -297,23 +325,32 @@ async def expense_resume(state: ChatState):
                 }]
             )
         )
+        trace["events"].append({
+            "node": "expense_resume",
+            "latency_ms": (time.perf_counter() - t0) * 1000,
+        })
         return state
 
     # Fallback: clear pending
     state["pending_confirmation"] = False
     state["hitl_reason"] = None
+    trace["events"].append({
+        "node": "expense_resume",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
     return state
 
 
 # -----------------------------
 # NODE: POST TOOL
 # -----------------------------
-async def expense_post_tool(state: ChatState):
+async def expense_post_tool(state: ChatState, config=None):
     """
     Handle post-tool updates.
     Fully normalized and streaming-safe.
     """
-
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
     if not state.get("messages"):
         return state
 
@@ -351,6 +388,10 @@ async def expense_post_tool(state: ChatState):
             state["hitl_reason"] = None
             state["last_tool"] = None
 
+            trace["events"].append({
+                "node": "expense_post_tool",
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+            })
             return state
 
         # Single match → auto-select
@@ -364,6 +405,10 @@ async def expense_post_tool(state: ChatState):
             state["selected_expense_id"] = expense_id
             state["expense_candidates"] = None
             state["last_tool"] = tool_name
+            trace["events"].append({
+                "node": "expense_post_tool",
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+            })
             return state
 
         # Multiple matches → HITL selection
@@ -381,12 +426,20 @@ async def expense_post_tool(state: ChatState):
             state["messages"].append(
                 AIMessage(content="Unable to identify expenses from results.")
             )
+            trace["events"].append({
+                "node": "expense_post_tool",
+                "latency_ms": (time.perf_counter() - t0) * 1000,
+            })
             return state
 
         state["expense_candidates"] = normalized_candidates
         state["pending_confirmation"] = True
         state["hitl_reason"] = "expense_selection"
         state["last_tool"] = tool_name
+        trace["events"].append({
+            "node": "expense_post_tool",
+            "latency_ms": (time.perf_counter() - t0) * 1000,
+        })
         return state
 
     # --------------------------------------------------
@@ -402,7 +455,10 @@ async def expense_post_tool(state: ChatState):
     state["pending_confirmation"] = False
     state["hitl_reason"] = None
     state["last_tool"] = None
-
+    trace["events"].append({
+        "node": "expense_post_tool",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
     return state
 
 

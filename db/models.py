@@ -1,6 +1,6 @@
 # db/models.py
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Text, DateTime, Enum, ForeignKey,
+    Column, Index, Integer, BigInteger, String, Text, DateTime, Enum, ForeignKey,
     JSON, Boolean, Float, func, UniqueConstraint, CHAR
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -23,6 +23,11 @@ class User(Base):
     tokens = relationship("AuthToken", back_populates="user", cascade="all,delete")
     tools = relationship("UserTool", back_populates="user", cascade="all,delete")
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all,delete")
+    episodic_memories = relationship("EpisodicMemory", back_populates="user", cascade="all, delete-orphan")
+    semantic_memories = relationship("SemanticMemory", back_populates="user", cascade="all, delete-orphan")
+    procedural_rules = relationship("ProceduralMemory", back_populates="user", cascade="all, delete-orphan")
+    semantic_embeddings = relationship("SemanticEmbedding", back_populates="user", cascade="all, delete-orphan")
+    user_memory_settings = relationship("UserMemorySetting", back_populates="user", cascade="all, delete-orphan", uselist=False)
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
@@ -43,6 +48,7 @@ class Thread(Base):
 
     user = relationship("User", back_populates="threads")
     messages = relationship("Message", back_populates="thread", cascade="all,delete")
+    episodic_memories = relationship("EpisodicMemory", back_populates="thread", cascade="all,delete")
     documents = relationship(
         "Document",
         back_populates="thread",
@@ -55,6 +61,7 @@ class Message(Base):
     thread_id = Column(String(64), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False)
     role = Column(Enum('user', 'assistant', 'system', name="message_roles"), nullable=False)
     content = Column(Text, nullable=True)
+    image_url = Column(String(512), nullable=True)
     json_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=False), server_default=func.now())
 
@@ -255,3 +262,106 @@ class Expense(Base):
     user = relationship("User")
     category = relationship("ExpenseCategory")
     subcategory = relationship("ExpenseSubCategory")
+
+
+
+
+# ***********************  Memory system ***********************************
+class EpisodicMemory(Base):
+    __tablename__ = "episodic_memories"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    thread_id = Column(String(64), ForeignKey("threads.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(10), nullable=False)          # user / assistant
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_user_thread_time", "user_id", "thread_id", "created_at"),)
+
+    user = relationship("User", back_populates="episodic_memories")
+    thread = relationship("Thread", back_populates="episodic_memories")
+
+class ProceduralMemory(Base):
+    __tablename__ = "procedural_rules"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    rules = Column(Text, nullable=False)               # json list of strings
+    confidence = Column(Float, nullable=True)
+    fingerprint = Column(String(32), nullable=False, index=True)
+    active = Column(Boolean, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        Index("ix_procedural_fp", "user_id", "fingerprint"),  # <-- fast dedup lookup
+    )
+    user = relationship("User", back_populates="procedural_rules")
+
+class SemanticMemory(Base):
+    __tablename__ = "semantic_memories"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    fact = Column(Text, nullable=False)                # human-readable sentence
+    embedding_id = Column(String(64), nullable=False, unique=True)  # faiss vector id
+    fingerprint = Column(String(128), nullable=True, index=True)  # normalized + hashed
+    confidence = Column(Float, nullable=True)
+    active        = Column(Boolean, default=True, index=True)
+    retention_until = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("ix_semantic_dedup", "user_id", "fingerprint"),
+        Index("ix_semantic_created", "user_id", "created_at"),
+    )
+
+    embedding = relationship(
+        "SemanticEmbedding",
+        back_populates="memory",
+        cascade="all, delete",          # <--  if you delete the embedding, delete the fact too
+        uselist=False,
+    )
+    user = relationship("User", back_populates="semantic_memories")
+
+class SemanticEmbedding(Base):
+    __tablename__ = "semantic_embeddings"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vector_id = Column(
+        String(255), nullable=False, unique=True
+    )
+    embedding_model = Column(String(128), nullable=False)
+    created_at = Column(
+        DateTime(timezone=False), server_default=func.now()
+    )
+    semantic_memory_id = Column(
+        Integer,
+        ForeignKey("semantic_memories.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,     # enforces 1-to-1
+        index=True,
+    )
+    memory = relationship(
+        "SemanticMemory",
+        back_populates="embedding",
+        cascade="all, delete",          # <--  when SemanticMemory row is deleted, this row auto-vanishes
+        uselist=False,                  # 1-to-1
+    )
+    user = relationship("User", back_populates="semantic_embeddings")
+    __table_args__ = (
+        Index("idx_semantic_user_vector", "user_id", "vector_id"),
+    )
+
+class UserMemorySetting(Base):
+    __tablename__ = "user_memory_settings"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    allow_episodic = Column(Boolean, default=True)
+    allow_semantic = Column(Boolean, default=True)
+    allow_procedural = Column(Boolean, default=True)
+    allow_long_conversation_memory = Column(Boolean, default=True)
+    semantic_retention_days = Column(Integer, default=90)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="user_memory_settings")

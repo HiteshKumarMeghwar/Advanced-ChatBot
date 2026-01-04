@@ -7,12 +7,16 @@ from api.schemas.chat import ChatRequest, ChatResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.types import Command
+from services.limiting import limiter
 from core.database import get_db
 from sqlalchemy import select
 import asyncio
 import json
+import time
 import logging
-import traceback  # For production error logging
+import traceback
+from tools.user_tools_cache import get_user_allowed_tool_names  # For production error logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,9 +24,10 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 @router.post("/stream")
+@limiter.limit("5/minute;100/day")
 async def chat_stream_endpoint(
-    req: ChatRequest,
     request: Request,
+    req: ChatRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -44,9 +49,13 @@ async def chat_stream_endpoint(
             thread_id=str(req.thread_id),
             role="user",
             content=req.query,
+            image_url=req.image_url,
         )
 
         chatbot = request.app.state.chatbot
+        allowed_tool_names = await get_user_allowed_tool_names(user.id, db)
+        tool_registry = request.app.state.tool_registry
+        allowed_tools = tool_registry.get_by_names(allowed_tool_names)
 
         # Define config variable before loop
         config = {
@@ -54,7 +63,13 @@ async def chat_stream_endpoint(
                 "thread_id": str(req.thread_id),
                 "cookies": dict(request.cookies),
                 "user_id": str(user.id),
-                # expense_id handled in state by LLM/tools
+                "llms": request.app.state.llms,
+                "allowed_tools": allowed_tools,
+                "tool_registry_version": tool_registry.version,
+                "trace": {
+                    "start_ts": time.perf_counter(),
+                    "events": [],
+                },
             }
         }
 
@@ -78,7 +93,9 @@ async def chat_stream_endpoint(
             })
         else:
             input_payload = {
-                "messages": [HumanMessage(content=req.query)]
+                "messages": [HumanMessage(content=req.query)],
+                "thread_id": str(req.thread_id),
+                "user_id": str(user.id),
             }
 
 

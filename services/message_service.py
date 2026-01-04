@@ -12,6 +12,7 @@ async def create_message_by_api(
     thread_id: str,
     role: str,
     content: str,
+    image_url: str | None = None,
     json_metadata: dict | list | None = None,
     tool_call: Union[str, List[str], None] = None,
 ) -> Message:
@@ -25,6 +26,7 @@ async def create_message_by_api(
         "thread_id": thread_id,
         "role": role,
         "content": content,
+        "image_url": image_url,
         "json_metadata": json_metadata,
         "tool_call": tool_call,
     }
@@ -47,6 +49,7 @@ async def create_message_by_api(
         thread_id=data["thread_id"],
         role=data["role"],
         content=data["content"],
+        image_url=data["image_url"],
         json_metadata=data.get("json_metadata"),
         created_at=datetime.fromisoformat(data["created_at"]),
     )

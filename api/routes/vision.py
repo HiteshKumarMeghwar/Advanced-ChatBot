@@ -1,11 +1,15 @@
 import os
 import base64
 import httpx
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from PIL import Image
 import io
+from api.dependencies import get_current_user
 from core.config import VISION_PROVIDER
-import pytesseract  # pip install pytesseract pillow
+import pytesseract
+
+from db.models import User
+from services.media_ocr import save_image  # pip install pytesseract pillow
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 import logging
 
@@ -86,3 +90,19 @@ async def parse_image(file: UploadFile = File(...)):
         text = extract_text_from_image_tesseract(b64)
 
     return {"text": text}
+
+
+
+# ------------------------------------------------------------------
+# Upload Image
+# ------------------------------------------------------------------
+@router.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Invalid image")
+
+    url = await save_image(file)
+    return {"url": url}

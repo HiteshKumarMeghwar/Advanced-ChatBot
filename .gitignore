@@ -2,6 +2,7 @@
 venv/
 venv-bot-py311/
 uploads/
+images_ocr/
 
 # Python
 __pycache__/

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Body, Request
 from typing import Dict, List
 
 from sqlalchemy import delete, select
@@ -6,7 +6,6 @@ from api.dependencies import get_current_user
 from api.schemas.mcp import MCPServerConfig
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Body
 from core.config import USAGE_LIMIT
 from core.database import get_db
 from db.models import Tool, User, UserTool
@@ -18,6 +17,7 @@ from services.mcp_registry import (
     mcp_server_by_name,
     reload_mcp_servers,
 )
+from tools.gather_tools import gather_tools
 from tools.multiserver_mcpclient_tools import multiserver_mcpclient_tools
 
 router = APIRouter(prefix="/mcp_server", tags=["MCP"])
@@ -67,6 +67,7 @@ async def create_mcp_server(
 
 @router.delete("/delete_for_user")
 async def delete_mcp_for_user(
+    request: Request,
     mcp_name: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -112,6 +113,8 @@ async def delete_mcp_for_user(
     # Remove MCP server from JSON
     delete_mcp_server(mcp_name)
 
+    await refresh_tool_startup_without_rerun(request.app)
+
     await db.commit()
 
     return {
@@ -124,6 +127,7 @@ async def delete_mcp_for_user(
 
 @router.post("/insert_tool_user", summary="Insert MCP tools and grant them to a user")
 async def insert_tool_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -184,8 +188,15 @@ async def insert_tool_user(
 
     await db.commit()
 
+    await refresh_tool_startup_without_rerun(request.app)
+
     return {
         "message": "MCP tools granted to user",
         "count": len(granted_tools),
         "tools": granted_tools,
     }
+
+
+async def refresh_tool_startup_without_rerun(app: FastAPI):
+    tools = await gather_tools()
+    await app.state.tool_registry.refresh(tools)

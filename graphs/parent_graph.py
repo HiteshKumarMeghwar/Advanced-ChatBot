@@ -1,4 +1,5 @@
 import asyncio
+import time
 from langgraph.graph import StateGraph, START, END
 from core.config import EXPENSE_TOOL_NAMES
 from graphs.bind_tool_with_llm import groq_without_tool_llm
@@ -22,12 +23,13 @@ def _json_safe(obj):
         return str(obj)
 
 
-async def classify_intent(state: ChatState):
+async def classify_intent(state: ChatState, config=None):
     """
     Classifies intent based on tool calls already decided by the LLM.
     This node MUST be deterministic and side-effect free.
     """
-
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
     last_message = state["messages"][-1] if state.get("messages") else None
     intent = "chat"
 
@@ -45,6 +47,12 @@ async def classify_intent(state: ChatState):
             intent = "other_tool"
 
     state["intent"] = intent
+
+    trace["events"].append({
+        "node": "classify_intent",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
+    
     return state
 
 
@@ -56,6 +64,9 @@ async def post_processor(state: ChatState, config=None) -> ChatState:
     - Cleans transient state
     - Prepares UI-safe assistant response
     """
+    t0 = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
+    llms = config.get("configurable", {}).get("llms")
 
     # Sanitize meta
     state["meta"] = {
@@ -261,21 +272,23 @@ async def post_processor(state: ChatState, config=None) -> ChatState:
     # 2.  Otherwise build the short list and call the model
     # ----------------------------------------------------------
     msgs = [system_message,messages[-1]]
+    base_llm = llms["chat_base"]
 
     try:
-        response = await asyncio.wait_for(groq_generator_llm.ainvoke(msgs, config=config), timeout=LLM_TIMEOUT)
+        response = await asyncio.wait_for(base_llm.ainvoke(msgs, config=config), timeout=LLM_TIMEOUT)
         state["messages"][-1] = response
     except asyncio.TimeoutError:
         logger.error("Refine-LLM call timed out")
 
+    trace["events"].append({
+        "node": "post_processor",
+        "latency_ms": (time.perf_counter() - t0) * 1000,
+    })
     return state
 
 
 async def build_graph_parent(checkpointer=None):
     graph = StateGraph(ChatState)
-
-    global groq_generator_llm
-    groq_generator_llm = await groq_without_tool_llm()
 
     graph.add_node("intent", classify_intent)
     graph.add_node("rag", await build_rag_graph(checkpointer=checkpointer))
