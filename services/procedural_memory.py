@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, delete
 import json
 import logging
+
+from services.user_memory_settings_and_defaults import get_user_memory_settings_or_default
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
@@ -17,19 +19,13 @@ def _fingerprint(rule: str) -> str:
     h = hashlib.blake2b(norm.encode("utf-8"), digest_size=16).hexdigest()
     return f"fp_{h}"
 
-
-async def user_allows_procedural(user_id: int) -> bool:
-    async with AsyncSessionLocal() as db:
-        row = await db.scalar(select(UserMemorySetting).filter_by(user_id=user_id))
-        return row.allow_procedural if row else True
-
 async def save_rules(user_id: int, rules: list[dict]):
     """
     rules: list of dicts {rule: "text", confidence: 0.9}
     Upsert each rule by fingerprint or add new.
     """
-
-    if not await user_allows_procedural(user_id):
+    settings = await get_user_memory_settings_or_default(user_id)
+    if not settings["allow_procedural"]:
         logger.info("User %s disallowed procedural saves", user_id)
         return {"ok": False, "reason": "user_disabled"}
 

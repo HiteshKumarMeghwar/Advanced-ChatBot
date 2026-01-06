@@ -23,7 +23,7 @@ from api.routes.user_memory_settings import router as user_memory_settings
 
 
 from contextlib import AsyncExitStack
-from core.config import CHAT_MODEL, CHAT_MODEL_TEXT
+from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
 from services.chat_model import ChatModelCreator
 from services.mcp_bootstrap import bootstrap_mcp_servers
 from services.memory_maintenance import start_background_maintenance
@@ -66,8 +66,8 @@ async def lifespan(app: FastAPI):
     async with AsyncExitStack() as stack:   # guarantees __aexit__ is called
         try:
             redis_cm = AsyncRedisSaver.from_conn_string(
-                "redis://localhost:6380/0",
-                ttl={"default_ttl": 60*60*24}
+                ASYNC_REDIS_CHECKPOINTER_URL,
+                ttl={"default_ttl": DEFAULT_CHECKPOINTER_TTL}
             )
             # enter the context-manager once, keep the real saver
             redis_saver = await stack.enter_async_context(redis_cm)

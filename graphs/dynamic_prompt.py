@@ -124,10 +124,10 @@ async def _build_memory_block(state: ChatState) -> str:
     lines: list[str] = []
 
     # --------------- deep summary ---------------
-    summary = state.get("long_history_memories") or []
+    summary = state.get("long_history_memories")
     if summary:
         lines.append("")
-        lines.append("=== LONG-TERM HISTORY OF 50 PREVIOUS MESSAGES SUMMARY ===")
+        lines.append("=== SHORT-TERM HISTORY OF 30 PREVIOUS MESSAGES SUMMARY ===")
         lines.append(summary)
 
     # --------------- episodic (last 20) ---------------

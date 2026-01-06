@@ -81,22 +81,25 @@ async def get_memory_manager(config):
 
 
 
-async def extract_memory(state: ChatState, config=None):
+async def extract_memory(
+    user_id: int, 
+    thread_id: str,
+    all_messages: list,
+    config
+):
     """
     POST-LLM memory extraction using LangMem with a single wrapper schema.
     Deterministic, non-tool, production-safe.
     """
-    user_id = state["user_id"]
-    thread_id = state["thread_id"]
 
     window: List[BaseMessage] = [
-        m for m in state["messages"][-6:]
+        m for m in all_messages[-6:]
         if hasattr(m, "content") and str(m.content).strip()
     ]
 
     if not window:
         logger.info("No messages for memory extraction")
-        return state
+        return
 
     try:
         manager = await get_memory_manager(config)
@@ -113,18 +116,18 @@ async def extract_memory(state: ChatState, config=None):
 
         if not extracted:
             logger.info("LangMem returned no extraction object")
-            return state
+            return
 
         # ✅ SINGLE WRAPPER OBJECT
         result = extracted[0].content
 
         if not result:
             logger.info("LangMem extraction empty")
-            return state
+            return
         
         if not isinstance(result, MemoryExtraction):
             logger.warning("Invalid extraction type from LangMem")
-            return state
+            return
 
         procedural_rules: List[dict] = []
 
@@ -181,4 +184,4 @@ async def extract_memory(state: ChatState, config=None):
     except Exception as e:
         logger.exception(f"Memory extraction failed: {e}")
 
-    return state
+    return

@@ -3,6 +3,7 @@ import uuid
 import hashlib
 from typing import List, Optional
 from core.config import RAG_TOP_K, SEMANTIC_DECAY_DAYS, SEMANTIC_DEDUP_SIM_THRESHOLD, CONFIDENCE_THRESHOLD
+from services.user_memory_settings_and_defaults import get_user_memory_settings_or_default
 from services.vector_db_faiss import FAISSVectorDB
 from db.database import AsyncSessionLocal
 from db.models import SemanticMemory, UserMemorySetting
@@ -18,11 +19,6 @@ def fingerprint_text(text: str) -> str:
     norm = " ".join(text.lower().strip().split())
     h = hashlib.blake2b(norm.encode("utf-8"), digest_size=12).hexdigest()
     return f"fp_{h}"
-
-async def user_allows_semantic(user_id: int) -> bool:
-    async with AsyncSessionLocal() as db:
-        row = await db.scalar(select(UserMemorySetting).filter_by(user_id=user_id))
-        return row.allow_semantic if row else True
 
 async def find_nearest_duplicate(user_id: int, fact: str, top_k: int = 1) -> Optional[dict]:
     """
@@ -42,7 +38,8 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
     Save semantic fact only if user allows and dedup passes.
     Returns: dict with status and saved row id or reason.
     """
-    if not await user_allows_semantic(user_id):
+    settings = await get_user_memory_settings_or_default(user_id)
+    if not settings["allow_semantic"]:
         logger.info("User %s disallowed semantic saves", user_id)
         return {"ok": False, "reason": "user_disabled"}
 

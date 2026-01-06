@@ -1,21 +1,16 @@
 # graphs/chat_graph.py
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, RemoveMessage
 from langgraph.graph import StateGraph, START, END
-
-from db.database import AsyncSessionLocal
-from db.models import User
 from graphs.dynamic_prompt import render_system_prompt
 from graphs.memory_extract_background import extract_memory_background
 from graphs.memory_inject import inject_memory
 from graphs.parent_graph import build_graph_parent
 from graphs.state import ChatState
-from core.config import LLM_TIMEOUT
+from core.config import HISTORY_SUMMARY_MEMORY_LIMIT, LLM_TIMEOUT
 import logging
 import asyncio
 import time
-
-from services.filter_allowed_tools import filter_allowed_tools
-from tools.gather_tools import gather_tools
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +24,7 @@ async def meghx_node(state: ChatState, config=None):
 
     t0 = time.perf_counter()
     system_message = await render_system_prompt(state)
-    msgs = [system_message, *state["messages"][-5:]]
+    msgs = [system_message, *state["messages"][-2:]]
     user_id = config.get("configurable", {}).get("user_id")
     llms = config.get("configurable", {}).get("llms")
     allowed_tools = config.get("configurable", {}).get("allowed_tools")
@@ -99,6 +94,21 @@ async def meghx_node(state: ChatState, config=None):
     return state
 
 
+async def snapshot_messages_node(state: ChatState, config=None):
+    state["__bg_messages__"] = copy.deepcopy(state["messages"])
+    return state
+
+# deletion from checkpointer >30 messages 
+async def prune_messages_node(state: ChatState, config=None):
+    msgs = state["messages"]
+    if len(msgs) < HISTORY_SUMMARY_MEMORY_LIMIT:
+        return state
+
+    return {
+        "messages": [RemoveMessage(id=m.id) for m in msgs[:-2]]
+    }
+
+
 
 
 # --------------------- BUILD GRAPH ----------------------------
@@ -113,15 +123,19 @@ async def build_graph(db_session=None, checkpointer=None):
     # graph.add_node("inject_memory", inject_memory)
     graph.add_node("meghx_node", meghx_node)
     graph.add_node("parent", await build_graph_parent(checkpointer=checkpointer))
+    # graph.add_node("snapshot_messages_node", snapshot_messages_node)
     # graph.add_node("extract_memory_background", extract_memory_background)
+    # graph.add_node("prune_messages_node", prune_messages_node)
 
     # graph.add_edge(START, "inject_memory")
     # graph.add_edge("inject_memory", "meghx_node")
     graph.add_edge(START, "meghx_node")
     graph.add_edge("meghx_node", "parent")
     graph.add_edge("parent", END)
-    # graph.add_edge("parent", "extract_memory_background")
-    # graph.add_edge("extract_memory_background", END)
+    # graph.add_edge("parent", "snapshot_messages_node")
+    # graph.add_edge("snapshot_messages_node", "extract_memory_background")
+    # graph.add_edge("extract_memory_background", "prune_messages_node")
+    # graph.add_edge("prune_messages_node", END)
 
     # >>>  DO NOT COMPILE HERE  <<<
     return graph          

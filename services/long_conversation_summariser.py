@@ -1,7 +1,6 @@
 import asyncio
 from langchain_core.messages import SystemMessage
 from core.config import LLM_TIMEOUT
-from graphs.bind_tool_with_llm import groq_without_tool_llm
 from services.redis import get_summary, set_summary
 import logging
 
@@ -24,10 +23,6 @@ SUMMARY_PROMPT = SystemMessage(
 )
 
 async def summarise_history(user_id: int, thread_id: str, messages: list, llms) -> str:
-    cached = await get_summary(user_id, thread_id)
-    if cached:
-        return cached
-
     llm = llms["system"]
     conversation = "\n".join(f"{m.type}: {m.content}" for m in messages)
     try:
@@ -38,8 +33,9 @@ async def summarise_history(user_id: int, thread_id: str, messages: list, llms) 
         summary = ""
 
     if summary:
+        summary = f"::{len(messages)}\n{summary}"
         await set_summary(user_id, thread_id, summary)
-    return summary
+    return
 
 
 
@@ -59,18 +55,22 @@ async def summarise_history_incremental(
     cached = await get_summary(user_id, thread_id)
     if not cached:
         # first time → full summary (fallback)
-        return await _full_summary(user_id, thread_id, all_messages, llms)
+        await summarise_history(user_id, thread_id, all_messages, llms)
+        return
 
     # find first message that is NOT in the cached summary (heuristic: length)
     #   - we store the message count inside the cached blob for accuracy
     try:
         lines = cached.splitlines()
         msg_count = int(lines[0].split("::")[1])  # first line:  "::123"
-        new_msgs = all_messages[msg_count:]
     except (IndexError, ValueError):
         # fallback – resummarise everything
-        return await _full_summary(user_id, thread_id, all_messages, llms)
+        await summarise_history(user_id, thread_id, all_messages, llms)
+        return
+    except Exception:
+        msg_count = 0
 
+    new_msgs = all_messages[msg_count:]
     if not new_msgs:
         return cached  # nothing new
 
@@ -92,13 +92,4 @@ async def summarise_history_incremental(
         return cached  # graceful degrade
 
     await set_summary(user_id, thread_id, updated)
-    return updated
-
-
-# ---------- private ----------
-async def _full_summary(user_id: int, thread_id: str, messages: list, llms) -> str:
-    """Old brute-force summary - kept for cold start."""
-    
-    full = await summarise_history(user_id, thread_id, messages, llms)
-    # prepend message count so we know where to resume
-    return f"::{len(messages)}\n{full}"
+    return

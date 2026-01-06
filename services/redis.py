@@ -1,3 +1,4 @@
+import hashlib
 import json
 import redis.asyncio as redis
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from db.database import AsyncSessionLocal
 from db.models import EpisodicMemory, UserMemorySetting
 import asyncio
 import logging
+from services.user_memory_settings_and_defaults import get_user_memory_settings_or_default
 logger = logging.getLogger(__name__)
 
 pool = redis.from_url(REDIS_URL, decode_responses=True)
@@ -25,20 +27,30 @@ async def delete_token(token: str) -> None:
 
 
 # ____________________ episodic memory ___________________________
-
-async def user_allows_episodic(user_id: int) -> bool:
-    async with AsyncSessionLocal() as db:
-        row = await db.scalar(select(UserMemorySetting).filter_by(user_id=user_id))
-        return row.allow_episodic if row else True
+async def is_duplicate_turn(user_id: int, thread_id: str, role: str, content: str) -> bool:
+    key = f"episodic:{user_id}:{thread_id}"
+    # hash of (role + content)
+    h = hashlib.blake2b(f"{role}:{content}".encode(), digest_size=8).hexdigest()
+    return await pool.sismember(key + "_dedup", h)
 
 async def push_episodic_turn(user_id: int, thread_id: str, role: str, content: str):
-
-    if await user_allows_episodic(user_id):
+    settings = await get_user_memory_settings_or_default(user_id)
+    if settings["allow_episodic"]:
+        if await is_duplicate_turn(user_id, thread_id, role, content):
+            logger.debug("Duplicate episodic skipped")
+            return
+        
+        # normal push
         key = f"episodic:{user_id}:{thread_id}"
         payload = json.dumps({"role": role, "content": content})
         await pool.lpush(key, payload)
         await pool.ltrim(key, 0, 19)          # keep last 20 turns
         await pool.expire(key, EPISODIC_TTL)
+
+        # store hash for 1 h (same TTL window)
+        h = hashlib.blake2b(f"{role}:{content}".encode(), digest_size=8).hexdigest()
+        await pool.sadd(key + "_dedup", h)
+        await pool.expire(key + "_dedup", EPISODIC_TTL)
 
         # cold path – MySQL (fire-and-forget)
         asyncio.create_task(_persist_episode(user_id, thread_id, role, content))

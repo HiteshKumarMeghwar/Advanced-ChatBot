@@ -365,3 +365,108 @@ class UserMemorySetting(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="user_memory_settings")
+
+
+
+
+
+# ***********************  Admin system ***********************************
+# class Admin(Base):
+#     __tablename__ = "admins"
+#     id = Column(BigInteger, primary_key=True)
+#     email = Column(String(255), unique=True, nullable=False)
+#     password_hash = Column(String(255), nullable=False)
+#     role = Column(Enum("super_admin", "ops", "support", name="admin_roles"))
+#     active = Column(Boolean, default=True)
+#     created_at = Column(DateTime, server_default=func.now())
+
+
+# class GlobalMemoryPolicy(Base):
+#     __tablename__ = "global_memory_policies"
+#     id = Column(Integer, primary_key=True)
+#     max_semantic_days = Column(Integer)
+#     episodic_enabled = Column(Boolean)
+#     semantic_enabled = Column(Boolean)
+#     procedural_enabled = Column(Boolean)
+#     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# class SystemEvent(Base):
+#     __tablename__ = "system_events"
+#     id = Column(BigInteger, primary_key=True)
+#     level = Column(Enum("info","warning","error","critical"))
+#     service = Column(String(100))
+#     message = Column(Text)
+#     metadata = Column(JSON)
+#     created_at = Column(DateTime, server_default=func.now())
+
+
+# class AuditLog(Base):
+#     __tablename__ = "audit_logs"
+#     id = Column(BigInteger, primary_key=True)
+#     actor_type = Column(Enum("admin","system"))
+#     actor_id = Column(BigInteger)
+#     action = Column(String(255))
+#     target_type = Column(String(100))
+#     target_id = Column(BigInteger)
+#     metadata = Column(JSON)
+#     created_at = Column(DateTime, server_default=func.now())
+
+
+# class MessageFeedback(Base):
+#     __tablename__ = "message_feedback"
+
+#     id = Column(BigInteger, primary_key=True, autoincrement=True)
+#     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+#     message_id = Column(BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+
+#     rating = Column(Enum("up", "down", name="feedback_rating"), nullable=False)
+#     reason = Column(String(255), nullable=True)   # optional user text / enum later
+
+#     model = Column(String(128), nullable=True)    # which model generated this
+#     tool_used = Column(String(128), nullable=True)  # tool name if any
+#     latency_ms = Column(Float, nullable=True)
+
+#     created_at = Column(DateTime, server_default=func.now())
+
+#     __table_args__ = (
+#         Index("ix_feedback_message", "message_id"),
+#         Index("ix_feedback_user", "user_id"),
+#     )
+
+
+# class FeedbackReview(Base):
+#     __tablename__ = "feedback_reviews"
+#     id = Column(BigInteger, primary_key=True)
+#     feedback_id = Column(BigInteger, ForeignKey("message_feedback.id"))
+#     admin_id = Column(BigInteger, ForeignKey("admins.id"))
+#     note = Column(Text)
+#     created_at = Column(DateTime, server_default=func.now())
+
+
+# class SystemConfig(Base):
+#     __tablename__ = "system_config"
+
+#     key = Column(String(100), primary_key=True)
+#     value = Column(JSON, nullable=False)
+#     value_type = Column(Enum(
+#         "string", "int", "float", "bool", "json", name="config_types"
+#     ), nullable=False)
+
+#     description = Column(Text, nullable=True)
+#     editable = Column(Boolean, default=True)
+#     requires_restart = Column(Boolean, default=False)
+
+#     updated_by_admin_id = Column(BigInteger, ForeignKey("admins.id"), nullable=True)
+#     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# class ConfigAuditLog(Base):
+#     __tablename__ = "config_audit_logs"
+
+#     id = Column(BigInteger, primary_key=True)
+#     admin_id = Column(BigInteger, ForeignKey("admins.id"))
+#     key = Column(String(100))
+#     old_value = Column(JSON)
+#     new_value = Column(JSON)
+#     created_at = Column(DateTime, server_default=func.now())
