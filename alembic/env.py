@@ -1,7 +1,8 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, create_engine
 from alembic import context
 from db.database import Base
+from core.config import ASYNC_DATABASE_URL
 from db import models
 
 # this is the Alembic Config object, which provides
@@ -57,9 +58,14 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    # connectable = engine_from_config(
+    #     config.get_section(config.config_ini_section, {}),
+    #     prefix="sqlalchemy.",
+    #     poolclass=pool.NullPool,
+    # )
+
+    connectable = create_engine(
+        ASYNC_DATABASE_URL.replace("asyncmy", "pymysql"),  # alembic needs sync driver
         poolclass=pool.NullPool,
     )
 

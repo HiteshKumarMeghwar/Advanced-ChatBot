@@ -46,8 +46,7 @@ async def signup(
         password_hash = _hash_password(user.password)
     )
     db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
+    await db.flush()   # <-- THIS IS NON-NEGOTIABLE
 
     # ---- grant tools ----
     await _grant_tools_to_user(db, new_user.id)
@@ -55,8 +54,6 @@ async def signup(
     await _create_default_settings(db, new_user.id)
     # ---- grant memory settings ----
     await _create_default_memory_settings(db, new_user.id)
-    
-    await db.commit()          # commit the UserTool rows
 
     # 3. create JWT + expiry for access token ....................................
     access_token, expires_at = _create_access_token(data={"sub": str(new_user.id)})
@@ -76,6 +73,7 @@ async def signup(
         expires_at=refresh_expires_at
     )
     db.add(db_token)
+
     await db.commit()
 
     # 5. respond
@@ -359,12 +357,13 @@ def _verify_google_token(token: str):
 
 async def _grant_tools_to_user(db: AsyncSession, user_id: int) -> None:
     """Insert one row per active tool for a new user."""
-    # 1. all globally active tools
-    active_tools = (
-        await db.execute(select(Tool).where(Tool.status == "active"))
+    global_tools = (
+        await db.execute(
+            select(Tool)
+            .where(Tool.scope == "global")
+        )
     ).scalars().all()
 
-    # 2. build rows
     db.add_all([
         UserTool(
             user_id=user_id,
@@ -372,14 +371,17 @@ async def _grant_tools_to_user(db: AsyncSession, user_id: int) -> None:
             usage_limit=USAGE_LIMIT,
             status="allowed",
         )
-        for t in active_tools
+        for t in global_tools
     ])
 
 
 async def _create_default_settings(db: AsyncSession, user_id: int) -> None:
     """Create a default settings row for a new user with *actual* tool names."""
-    active_tools = (
-        await db.execute(select(Tool.name).where(Tool.status == "active"))
+    global_tools = (
+        await db.execute(
+            select(Tool)
+            .where(Tool.scope == "global")
+        )
     ).scalars().all()
 
     db.add(UserSettings(
@@ -387,7 +389,7 @@ async def _create_default_settings(db: AsyncSession, user_id: int) -> None:
         preferred_model=CHAT_MODEL,
         theme=USER_THEME,
         notification_enabled=True,
-        preferred_tools=json.dumps(active_tools),   # ← real names from DB
+        preferred_tools = json.dumps([t.name for t in global_tools])
     ))
     
 

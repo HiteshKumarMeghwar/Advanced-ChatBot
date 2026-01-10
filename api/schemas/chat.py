@@ -4,6 +4,7 @@ from typing import Optional, Union
 
 class ChatRequest(BaseModel):
     thread_id: UUID4
+    edit_message_id: Optional[int] = None
     query: str
     image_url: Optional[str] = None
 

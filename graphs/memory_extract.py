@@ -51,7 +51,7 @@ async def get_memory_manager(config):
     llms = config.get("configurable", {}).get("llms")
     if _memory_manager is None:
 
-        llm = llms["system"]
+        llm = llms["system"].with_structured_output(MemoryExtraction)
 
         _memory_manager = create_memory_manager(
             llm, # ← Correct: positional model argument

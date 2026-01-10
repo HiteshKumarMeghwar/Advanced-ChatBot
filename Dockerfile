@@ -33,6 +33,7 @@ RUN pip install \
 COPY . .
 RUN chmod +x /code/expense-tracker-mcp/main.py
 
+COPY ca.pem /ca.pem
 
 # --------------- install Node (needed for many MCP servers) ---------------
 RUN apt-get update && apt-get install -y curl \

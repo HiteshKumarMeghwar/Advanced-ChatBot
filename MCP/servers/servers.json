@@ -15,12 +15,12 @@
     "transport": "streamable_http",
     "url": "https://test-remote-server2323.fastmcp.app/mcp"
   },
-  "Fetch": {
-    "transport": "streamable_http",
-    "url": "https://remote.mcpservers.org/fetch/mcp"
-  },
   "Sequential Thinking": {
     "transport": "streamable_http",
     "url": "https://remote.mcpservers.org/sequentialthinking/mcp"
+  },
+  "fetch": {
+    "transport": "streamable_http",
+    "url": "https://remote.mcpservers.org/fetch/mcp"
   }
 }

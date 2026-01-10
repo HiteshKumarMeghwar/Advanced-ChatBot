@@ -175,3 +175,27 @@ async def delete_thread(
         deleted_documents=file_count,
         vector_index_removed=index_removed,
     )
+
+
+# ---------- rename ----------
+@router.patch("/rename/{thread_id}", response_model=ThreadRead)
+async def rename_thread(
+    thread_id: UUID4,
+    body: ThreadBase,          # contains only `title: str`
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    stmt = (
+        select(Thread)
+        .where(Thread.id == str(thread_id), Thread.user_id == user.id)
+        .options(selectinload(Thread.messages))
+    )
+    result = await db.execute(stmt)
+    thread = result.scalar_one_or_none()
+    if not thread:
+        raise HTTPException(404, "Thread not found")
+
+    thread.title = body.title.strip()
+    await db.commit()
+    await db.refresh(thread)
+    return thread

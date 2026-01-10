@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from api.dependencies import get_current_user
 from db.models import Message, User, Thread
-from services.message_service import create_message_by_api
+from services.message_service import create_message_by_api, create_or_update_message
 from api.schemas.chat import ChatRequest, ChatResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage, AIMessage
@@ -15,6 +15,7 @@ import json
 import time
 import logging
 import traceback
+from services.vector_db_faiss import FAISSVectorDB
 from tools.user_tools_cache import get_user_allowed_tool_names  # For production error logging
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ async def chat_stream_endpoint(
     req: ChatRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    vector_db: FAISSVectorDB = Depends(FAISSVectorDB.get_instance),
 ):
     try:
         # 1. Validate thread
@@ -44,12 +46,14 @@ async def chat_stream_endpoint(
             raise HTTPException(404, "Thread not found")
 
         # 2. Save user message immediately
-        await create_message_by_api(
-            request=request,
+        await create_or_update_message(
+            db=db,
             thread_id=str(req.thread_id),
             role="user",
             content=req.query,
             image_url=req.image_url,
+            message_id=req.edit_message_id, # if value or none
+            vector_db=vector_db,  # only used if rag_tool
         )
 
         chatbot = request.app.state.chatbot
@@ -110,6 +114,30 @@ async def chat_stream_endpoint(
             interrupt_candidates = None
             was_interrupted = False
             final_emitted = False
+            real_message_id = None
+
+            if req.edit_message_id:
+                real_message_id = req.edit_message_id + 1
+                yield f"data: {json.dumps({'type': 'message_created', 'message_id': real_message_id})}\n\n"
+            else:
+                # --- NEW: Create assistant message EARLY and send real ID ---
+                try:
+                    assistant_msg = await create_or_update_message(
+                        db=db,
+                        thread_id=str(req.thread_id),
+                        role="assistant",
+                        content="",
+                        vector_db=vector_db,
+                    )
+                    real_message_id = assistant_msg.id
+
+                    # Send real ID immediately so frontend can replace temp ID
+                    yield f"data: {json.dumps({'type': 'message_created', 'message_id': real_message_id})}\n\n"
+
+                except Exception as e:
+                    logger.error(f"Failed to create assistant message early: {e}")
+                    # Fallback: don't crash stream, but feedback won't work instantly
+                    real_message_id = None
 
             try:
                 async for event in chatbot.astream_events(
@@ -117,6 +145,7 @@ async def chat_stream_endpoint(
                     version="v2",
                     config=config,
                 ):
+                    
                     # 🔑 THIS is the important part
                     if event["event"] in ("on_llm_stream", "on_chat_model_stream"):
                         chunk = event["data"]["chunk"]
@@ -198,7 +227,8 @@ async def chat_stream_endpoint(
                 yield f"data: {json.dumps({'error': error_msg})}\n\n"
                 yield "data: [DONE]\n\n"
 
-            if full_text.strip():
+            # --- FINAL: Update the assistant message with full content ---
+            if full_text.strip() and real_message_id:
                 # Prepare metadata
                 json_metadata = tool_calls_list[:] if tool_calls_list else None  # Shallow copy if list
 
@@ -208,15 +238,18 @@ async def chat_stream_endpoint(
                     else:
                         json_metadata = json_metadata.copy()
                     json_metadata["interrupt"] = True
-
-                await create_message_by_api(
-                    request=request,
-                    thread_id=str(req.thread_id),
-                    role="assistant",
-                    content=full_text,
-                    json_metadata=json_metadata,
-                    tool_call=[t["name"] for t in tool_calls_list] if tool_calls_list else None,
-                )
+                try:
+                    await create_or_update_message(
+                        db=db,
+                        thread_id=str(req.thread_id),
+                        role="assistant",
+                        content=full_text,
+                        json_metadata=json_metadata,
+                        message_id=real_message_id,  # UPDATE existing!
+                        vector_db=vector_db,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update assistant message {real_message_id}: {e}")
 
         return StreamingResponse(
             event_generator(),

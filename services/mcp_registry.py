@@ -50,7 +50,7 @@ def save_mcp_servers(servers: Dict) -> None:
 def add_mcp_server(name: str, config: Dict) -> Dict:
     servers = load_mcp_servers()
     if name in servers:
-        raise ValueError("MCP server already exists")
+        return
 
     servers[name] = config
     save_mcp_servers(servers)

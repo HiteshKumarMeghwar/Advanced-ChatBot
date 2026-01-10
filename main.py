@@ -20,6 +20,7 @@ from api.routes.mcp import router as mcp_router
 from api.routes.voice import router as voice_router
 from api.routes.vision import router as image_router
 from api.routes.user_memory_settings import router as user_memory_settings
+from api.routes.feedback import router as feedback_router
 
 
 from contextlib import AsyncExitStack
@@ -105,7 +106,8 @@ async def lifespan(app: FastAPI):
             app.state.tool_registry = ToolRegistry()
             all_tools = await gather_tools()
             await app.state.tool_registry.refresh(all_tools)
-            logger.info("Tool registry initialized (version=%s)", app.state.tool_registry.version)
+            logger.info("Tool registry initialized (version=%s)",
+                getattr(app.state.tool_registry, "version", "unknown"))
         except Exception as exc:
             logger.exception("Tools Initiating issue -: %s", exc)
 
@@ -118,6 +120,10 @@ async def lifespan(app: FastAPI):
         app.state.chatbot = None
         logger.info("Chatbot graph released.")
     
+    if redis_saver:
+        redis_saver = None
+        logger.info("Redis check-pointer inactive.")
+
     if hasattr(app.state, "llms"):
         app.state.llms = None
         logger.info("LLMs released.")
@@ -200,6 +206,7 @@ app.include_router(mcp_router)
 app.include_router(voice_router)
 app.include_router(image_router)
 app.include_router(user_memory_settings)
+app.include_router(feedback_router)
 
 
 

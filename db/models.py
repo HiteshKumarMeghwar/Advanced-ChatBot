@@ -22,6 +22,11 @@ class User(Base):
     settings = relationship("UserSettings", back_populates="user", uselist=False, cascade="all,delete")
     tokens = relationship("AuthToken", back_populates="user", cascade="all,delete")
     tools = relationship("UserTool", back_populates="user", cascade="all,delete")
+    mcp_servers = relationship(
+        "MCPServer",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all,delete")
     episodic_memories = relationship("EpisodicMemory", back_populates="user", cascade="all, delete-orphan")
     semantic_memories = relationship("SemanticMemory", back_populates="user", cascade="all, delete-orphan")
@@ -158,10 +163,15 @@ class Tool(Base):
     status = Column(
         Enum('active', 'inactive', name="tool_status"),
         nullable=False,
-        server_default="active"
+        server_default="active",
+    )
+    scope = Column(
+        Enum('global', 'mcp', name="tool_scope"),
+        nullable=False,
+        server_default="global",
+        index=True,
     )
     created_at = Column(DateTime(timezone=False), server_default=func.now())
-    
     user_tools = relationship("UserTool", back_populates="tool")
 
 class UserTool(Base):
@@ -176,6 +186,11 @@ class UserTool(Base):
         server_default="allowed"
     )
     created_at = Column(DateTime(timezone=False), server_default=func.now())
+    mcp_links = relationship(
+        "MCPServerUserTool",
+        back_populates="user_tool",
+        cascade="all, delete-orphan",
+    )
 
     user = relationship("User", back_populates="tools")
     tool = relationship("Tool", back_populates="user_tools")
@@ -263,6 +278,74 @@ class Expense(Base):
     category = relationship("ExpenseCategory")
     subcategory = relationship("ExpenseSubCategory")
 
+
+class MCPServer(Base):
+    __tablename__ = "mcp_servers"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    name = Column(String(100), nullable=False)
+    transport = Column(String(50), nullable=False)
+
+    command = Column(Text, nullable=True)
+    args = Column(JSON, nullable=True)
+    url = Column(String(500), nullable=True)
+    extra = Column(JSON, nullable=True)
+
+    owner_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+
+    user = relationship("User", back_populates="mcp_servers")
+    user_tool_links = relationship(
+        "MCPServerUserTool",
+        cascade="all, delete-orphan",
+        back_populates="mcp_server",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_user_mcp_name"),
+    )
+
+class MCPServerUserTool(Base):
+    __tablename__ = "mcp_server_user_tools"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    mcp_server_id = Column(
+        BigInteger,
+        ForeignKey("mcp_servers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    user_tool_id = Column(
+        BigInteger,
+        ForeignKey("user_tools.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    mcp_server = relationship("MCPServer", back_populates="user_tool_links")
+    user_tool = relationship(
+        "UserTool",
+        back_populates="mcp_links",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "mcp_server_id",
+            "user_tool_id",
+            name="uq_mcp_user_tool",
+        ),
+    )
 
 
 
@@ -369,7 +452,6 @@ class UserMemorySetting(Base):
 
 
 
-
 # ***********************  Admin system ***********************************
 # class Admin(Base):
 #     __tablename__ = "admins"
@@ -413,26 +495,26 @@ class UserMemorySetting(Base):
 #     created_at = Column(DateTime, server_default=func.now())
 
 
-# class MessageFeedback(Base):
-#     __tablename__ = "message_feedback"
+class MessageFeedback(Base):
+    __tablename__ = "message_feedback"
 
-#     id = Column(BigInteger, primary_key=True, autoincrement=True)
-#     user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-#     message_id = Column(BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    message_id = Column(BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
 
-#     rating = Column(Enum("up", "down", name="feedback_rating"), nullable=False)
-#     reason = Column(String(255), nullable=True)   # optional user text / enum later
+    rating = Column(Enum("up", "down", name="feedback_rating"), nullable=False)
+    reason = Column(String(255), nullable=True)   # optional user text / enum later
 
-#     model = Column(String(128), nullable=True)    # which model generated this
-#     tool_used = Column(String(128), nullable=True)  # tool name if any
-#     latency_ms = Column(Float, nullable=True)
+    model = Column(String(128), nullable=True)    # which model generated this
+    tool_used = Column(String(128), nullable=True)  # tool name if any
+    latency_ms = Column(Float, nullable=True)
 
-#     created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
-#     __table_args__ = (
-#         Index("ix_feedback_message", "message_id"),
-#         Index("ix_feedback_user", "user_id"),
-#     )
+    __table_args__ = (
+        Index("ix_feedback_message", "message_id"),
+        Index("ix_feedback_user", "user_id"),
+    )
 
 
 # class FeedbackReview(Base):
