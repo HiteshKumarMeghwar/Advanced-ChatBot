@@ -24,6 +24,7 @@ from api.routes.vision import router as image_router
 from api.routes.user_memory_settings import router as user_memory_settings
 from api.routes.feedback import router as feedback_router
 from api.routes.acounts_integration import router as acounts_integration_router
+from api.routes.expense import router as expense_router
 
 
 from contextlib import AsyncExitStack
@@ -214,6 +215,7 @@ app.include_router(image_router)
 app.include_router(user_memory_settings)
 app.include_router(feedback_router)
 app.include_router(acounts_integration_router)
+app.include_router(expense_router)
 
 
 
