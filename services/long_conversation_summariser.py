@@ -1,7 +1,9 @@
 import asyncio
+import time
 from langchain_core.messages import SystemMessage
 from core.config import LLM_TIMEOUT
 from services.redis import get_summary, set_summary
+from services.memory_metrics import SUMMARY_LATENCY
 import logging
 
 logger = logging.getLogger(__name__)
@@ -51,11 +53,13 @@ async def summarise_history_incremental(
     2.  If cache exists → summarise only messages AFTER the last cached turn
     3.  Append delta to existing summary and store back
     """
+    start = time.perf_counter()
     llms = config.get("configurable", {}).get("llms")
     cached = await get_summary(user_id, thread_id)
     if not cached:
         # first time → full summary (fallback)
         await summarise_history(user_id, thread_id, all_messages, llms)
+        SUMMARY_LATENCY.observe(time.perf_counter() - start)
         return
 
     # find first message that is NOT in the cached summary (heuristic: length)
@@ -66,6 +70,7 @@ async def summarise_history_incremental(
     except (IndexError, ValueError):
         # fallback – resummarise everything
         await summarise_history(user_id, thread_id, all_messages, llms)
+        SUMMARY_LATENCY.observe(time.perf_counter() - start)
         return
     except Exception:
         msg_count = 0
@@ -87,6 +92,7 @@ async def summarise_history_incremental(
             timeout=LLM_TIMEOUT,
         )
         updated = f"::{len(all_messages)}\n" + resp.content.strip()
+        SUMMARY_LATENCY.observe(time.perf_counter() - start)
     except Exception as e:
         logger.warning("Incremental summary failed: %s", e)
         return cached  # graceful degrade

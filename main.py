@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import asyncio
 import uvicorn
 from fastapi import FastAPI
@@ -21,6 +23,7 @@ from api.routes.voice import router as voice_router
 from api.routes.vision import router as image_router
 from api.routes.user_memory_settings import router as user_memory_settings
 from api.routes.feedback import router as feedback_router
+from api.routes.acounts_integration import router as acounts_integration_router
 
 
 from contextlib import AsyncExitStack
@@ -35,6 +38,7 @@ from core.database import init_db
 from db.database import AsyncSessionLocal
 from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import make_asgi_app
 from loguru import logger
 
 from services.limiting import limiter
@@ -189,6 +193,8 @@ app.mount(
     name="images",
 )
 
+app.mount("/metrics", make_asgi_app())
+
 app.include_router(auth_router)
 app.include_router(threads_router)
 app.include_router(messages_router)
@@ -207,6 +213,7 @@ app.include_router(voice_router)
 app.include_router(image_router)
 app.include_router(user_memory_settings)
 app.include_router(feedback_router)
+app.include_router(acounts_integration_router)
 
 
 

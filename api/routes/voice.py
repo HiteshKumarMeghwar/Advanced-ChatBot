@@ -1,25 +1,18 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from faster_whisper import WhisperModel
 import tempfile
 import os
 from core.config import BEAM_SIZE, VAD_FILTER, VAD_PARAMETERS
+from services.whisper_service import get_whisper_model
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
-# -----------------------------
-# Load model ONCE (important)
-# -----------------------------
-model = WhisperModel(
-    "small",
-    device="cpu",
-    compute_type="int8",
-)
 
 # -----------------------------
 # Transcribe endpoint
 # -----------------------------
 @router.post("/transcribe")
 async def transcribe_voice(file: UploadFile = File(...)):
+    model = get_whisper_model()
     if not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="Invalid audio file")
 

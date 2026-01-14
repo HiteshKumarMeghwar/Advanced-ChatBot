@@ -9,8 +9,12 @@ from db.database import AsyncSessionLocal
 from db.models import SemanticMemory, UserMemorySetting
 from langchain_core.documents import Document
 import logging
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from datetime import datetime, timedelta, timezone
+from services.pii_crypto import decrypt_fact, detect_pii_type
+from cryptography.fernet import InvalidToken
+from services.memory_metrics import SEMANTIC_VERSIONED_TOTAL
+
 
 logger = logging.getLogger(__name__)
 VS = FAISSVectorDB.get_instance()
@@ -27,7 +31,20 @@ async def find_nearest_duplicate(user_id: int, fact: str, top_k: int = 1) -> Opt
     You may need to invert logic if your index returns distances.
     """
     try:
-        hits = await VS.query(thread_id=f"semantic_{user_id}", query=fact, top_k=top_k)
+        hits = []
+        hits += await VS.query(
+            thread_id=f"semantic_{user_id}",
+            query=fact,
+            top_k=top_k,
+            normalise=True,
+        )
+
+        hits += await VS.query(
+            thread_id=f"semantic_{user_id}_pii",
+            query=fact,
+            top_k=top_k,
+            normalise=True,
+        )
         return hits[0] if hits else None
     except Exception as e:
         logger.warning("Semantic delta query failed: %s", e)
@@ -59,12 +76,28 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
     retention_days = retention_days or SEMANTIC_DECAY_DAYS
     retention_until = datetime.now(timezone.utc) + timedelta(days=retention_days)
 
-    # 1) Quick fingerprint dedupe: if fingerprint exists with similar fact, skip
+    # 🔁 Semantic versioning:
+    # If a similar semantic exists, expire it instead of hard-rejecting
+    versioned = False
     async with AsyncSessionLocal() as db:
-        existing = await db.scalar(select(SemanticMemory).filter_by(user_id=user_id, fingerprint=fp))
-        if existing:
-            logger.info("Duplicate semantic found by fingerprint for user %s", user_id)
-            return {"ok": False, "reason": "duplicate_fingerprint"}
+        existing = await db.execute(
+            select(SemanticMemory)
+            .where(SemanticMemory.user_id == user_id)
+            .where(SemanticMemory.retention_until > datetime.now(timezone.utc))
+        )
+        for row in existing.scalars():
+            if row.fingerprint == fp:
+                # expire old version
+                row.retention_until = datetime.now(timezone.utc)
+                versioned = True
+                logger.info(
+                    "Expired previous semantic version for user %s (id=%s)",
+                    user_id,
+                    row.id,
+                )
+        await db.commit()
+    if versioned:
+        SEMANTIC_VERSIONED_TOTAL.inc()
 
     # 2) Vector similarity check (best-effort)
     nearest = await find_nearest_duplicate(user_id, fact_clean)
@@ -93,10 +126,12 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
         await db.refresh(mem)
         saved_id = mem.id
 
+    index_suffix = "_pii" if detect_pii_type(fact_clean) else ""
+
     # 4) Build Document and push to FAISS (best-effort)
-    doc = Document(page_content=fact_clean, metadata={"user_id": user_id, "embedding_id": embedding_id})
+    doc = Document(page_content=fact_clean, metadata={"user_id": user_id, "embedding_id": embedding_id, "pii": bool(index_suffix),})
     try:
-        await VS.add_semantic_documents(user_id=user_id, documents=[doc], db=AsyncSessionLocal())
+        await VS.add_semantic_documents(user_id=user_id, documents=[doc], pii=index_suffix, db=AsyncSessionLocal())
     except Exception as e:
         logger.error("Failed to add semantic vector for user %s: %s", user_id, e)
         # NOT raising: semantic fact persisted in MySQL — vector is optional
@@ -106,5 +141,55 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
 
 
 async def query_semantic_facts(user_id: int, query: str, top_k: int = 1) -> List[str]:
-    hits = await VS.query(thread_id=f"semantic_{user_id}", query=query, top_k=top_k, normalise=True)
-    return [h["content"] for h in hits]
+    now = datetime.now(timezone.utc)
+
+    # 1️⃣ Load active (non-expired) semantic memory IDs
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(SemanticMemory.embedding_id, SemanticMemory.fact)
+            .where(
+                and_(
+                    SemanticMemory.user_id == user_id,
+                    SemanticMemory.retention_until > now,
+                )
+            )
+        )
+        active_ids = {r.embedding_id for r in rows}
+        encrypted_map = {r.embedding_id: r.fact for r in rows}
+
+    hits = []
+
+    hits += await VS.query(
+        thread_id=f"semantic_{user_id}",
+        query=query,
+        top_k=top_k,
+        normalise=True,
+    )
+
+    hits += await VS.query(
+        thread_id=f"semantic_{user_id}_pii",
+        query=query,
+        top_k=top_k,
+        normalise=True,
+    )
+
+    results: List[str] = []
+
+    for h in hits:
+        embedding_id = h.get("metadata", {}).get("embedding_id")
+        if embedding_id not in active_ids:
+            continue  # ⛔ expired or unknown
+
+        content = encrypted_map.get(embedding_id)
+        if not content:
+            continue
+
+        try:
+            results.append(decrypt_fact(content))
+        except InvalidToken:
+            results.append(content)
+        except Exception:
+            logger.exception("Semantic decrypt failed for user %s", user_id)
+            results.append(content)
+
+    return results

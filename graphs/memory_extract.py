@@ -8,6 +8,15 @@ from pydantic import BaseModel, Field
 
 from langmem import create_memory_manager
 
+from services.pii_crypto import encrypt_fact, detect_pii_type
+from services.memory_metrics import (
+    MEMORY_EXTRACTION_TOTAL,
+    MEMORY_EXTRACTION_FAILURES,
+    MEMORY_EXTRACTED_TOTAL,
+    PII_ENCRYPTED_TOTAL,
+    MEMORY_EXTRACTION_LATENCY,
+    SEMANTIC_SAVE_TOTAL,
+)
 from core.config import CONFIDENCE_THRESHOLD
 from graphs.state import ChatState
 from services.redis import push_episodic_turn
@@ -92,6 +101,9 @@ async def extract_memory(
     Deterministic, non-tool, production-safe.
     """
 
+    MEMORY_EXTRACTION_TOTAL.inc()
+    start = time.perf_counter()
+
     window: List[BaseMessage] = [
         m for m in all_messages[-6:]
         if hasattr(m, "content") and str(m.content).strip()
@@ -142,6 +154,7 @@ async def extract_memory(
                     role=mem.role,
                     content=mem.content.strip()[:500],
                 )
+                MEMORY_EXTRACTED_TOTAL.labels(type="episodic").inc()
                 logger.info(f"Saved episodic: {mem.content[:60]}...")
             except Exception as e:
                 logger.warning(f"Episodic save failed: {e}")
@@ -150,15 +163,34 @@ async def extract_memory(
         for mem in result.semantic:
             if mem.confidence < CONFIDENCE_THRESHOLD:
                 continue
+
+            fact_text = mem.fact.strip()
+            encrypted = False
+
+            pii_type = detect_pii_type(fact_text)
+            if pii_type:
+                fact_text = encrypt_fact(fact_text)
+                encrypted = True
+                PII_ENCRYPTED_TOTAL.labels(type=pii_type).inc()
+
             try:
                 await save_semantic_fact(
                     user_id=user_id,
-                    fact=mem.fact.strip(),
+                    fact=fact_text,
                     confidence=mem.confidence,
                 )
-                logger.info(f"Saved semantic: {mem.fact}")
+                MEMORY_EXTRACTED_TOTAL.labels(type="semantic").inc()
+                SEMANTIC_SAVE_TOTAL.labels(
+                    encrypted=str(encrypted).lower()
+                ).inc()
+                logger.info(
+                    "Saved semantic memory (encrypted=%s, confidence=%.2f)",
+                    encrypted,
+                    mem.confidence,
+                )
             except Exception as e:
                 logger.warning(f"Semantic save failed: {e}")
+
 
         # ---------------- PROCEDURAL ----------------
         for mem in result.procedural:
@@ -177,11 +209,15 @@ async def extract_memory(
         if procedural_rules:
             try:
                 await save_rules(user_id, procedural_rules)
+                MEMORY_EXTRACTED_TOTAL.labels(type="procedural").inc()
                 logger.info(f"Saved {len(procedural_rules)} procedural rules")
             except Exception as e:
                 logger.warning(f"Procedural save failed: {e}")
 
     except Exception as e:
         logger.exception(f"Memory extraction failed: {e}")
+        MEMORY_EXTRACTION_FAILURES.inc()
+
+    MEMORY_EXTRACTION_LATENCY.observe(time.perf_counter() - start)
 
     return

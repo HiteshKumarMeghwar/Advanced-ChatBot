@@ -112,6 +112,7 @@ class FAISSVectorDB:
         self,
         user_id: int,
         documents: List[Document],
+        pii: bool,
         db: DBSession,
     ) -> None:
         """
@@ -121,7 +122,7 @@ class FAISSVectorDB:
         Clean separation from RAG.
         """
 
-        thread_id = f"semantic_{user_id}"
+        thread_id = f"semantic_{user_id}{pii}"
         index_path = self._index_path(thread_id)
 
         def _sync_faiss_op():

@@ -1,11 +1,12 @@
 import asyncio
 import time
 from langgraph.graph import StateGraph, START, END
-from core.config import EXPENSE_TOOL_NAMES
+from core.config import EXPENSE_TOOL_NAMES, SOCIAL_TOOL_NAMES
 from graphs.bind_tool_with_llm import groq_without_tool_llm
 from graphs.other_tool_graph import build_other_tool_graph
 from graphs.rag_graph import build_rag_graph
 from graphs.expense_graph import build_expense_graph
+from graphs.social_accounts_graph import build_socail_accounts_graph
 from graphs.state import ChatState
 from core.config import LLM_TIMEOUT
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
@@ -42,6 +43,9 @@ async def classify_intent(state: ChatState, config=None):
         elif tool_names & EXPENSE_TOOL_NAMES:
             intent = "expense"
             state["expense_action"] = next(iter(tool_names))
+
+        elif tool_names & SOCIAL_TOOL_NAMES:
+            intent = "social_accounts"
 
         else:
             intent = "other_tool"
@@ -293,6 +297,7 @@ async def build_graph_parent(checkpointer=None):
     graph.add_node("intent", classify_intent)
     graph.add_node("rag", await build_rag_graph(checkpointer=checkpointer))
     graph.add_node("expense", await build_expense_graph(checkpointer=checkpointer))
+    graph.add_node("social_accounts", await build_socail_accounts_graph(checkpointer=checkpointer))
     graph.add_node("other_tool", await build_other_tool_graph(checkpointer=checkpointer))
     graph.add_node("post", post_processor)
 
@@ -304,6 +309,7 @@ async def build_graph_parent(checkpointer=None):
         {
             "rag": "rag",
             "expense": "expense",
+            "social_accounts": "social_accounts",
             "other_tool": "other_tool",
             "chat": END,
         },
@@ -311,6 +317,7 @@ async def build_graph_parent(checkpointer=None):
 
     graph.add_edge("rag", "post")
     graph.add_edge("expense", "post")
+    graph.add_edge("social_accounts", "post")
     graph.add_edge("other_tool", "post")
     graph.add_edge("post", END)
 

@@ -87,3 +87,25 @@ async def set_summary(user_id: int, thread_id: str, summary: str):
     key = f"summary:{user_id}:{thread_id}"
     await pool.setex(key, HISTORY_SUMMARY_MEMORY_TTL, summary)
     logger.info("User summary setted", user_id)
+
+
+
+# ____________________ OAuth PKCE (Twitter) ___________________________
+
+PKCE_TTL = 300  # 5 minutes
+async def save_pkce_verifier(state: str, verifier: str) -> None:
+    """
+    Store PKCE verifier temporarily, keyed by OAuth state
+    """
+    await pool.setex(f"pkce:{state}", PKCE_TTL, verifier)
+
+
+async def get_and_delete_pkce_verifier(state: str) -> str | None:
+    """
+    Retrieve PKCE verifier once and delete it (one-time use)
+    """
+    key = f"pkce:{state}"
+    verifier = await pool.get(key)
+    if verifier:
+        await pool.delete(key)
+    return verifier

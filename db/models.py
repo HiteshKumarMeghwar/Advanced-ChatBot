@@ -33,6 +33,7 @@ class User(Base):
     procedural_rules = relationship("ProceduralMemory", back_populates="user", cascade="all, delete-orphan")
     semantic_embeddings = relationship("SemanticEmbedding", back_populates="user", cascade="all, delete-orphan")
     user_memory_settings = relationship("UserMemorySetting", back_populates="user", cascade="all, delete-orphan", uselist=False)
+    user_integrations = relationship("UserIntegration", back_populates="user", cascade="all, delete")
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
@@ -449,6 +450,41 @@ class UserMemorySetting(Base):
 
     user = relationship("User", back_populates="user_memory_settings")
 
+
+
+# *********************** ACOUNTS INTEGRATION ***********************************
+class UserIntegration(Base):
+    __tablename__ = "user_integrations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", name="uq_user_provider"),
+        {"mysql_engine": "InnoDB"},
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    # 🔑 MUST MATCH users.id EXACTLY
+    user_id = Column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    provider = Column(String(50), nullable=False)
+    # facebook | gmail | github | twitter | etc
+
+    display_name = Column(String(255), nullable=True)
+
+    credentials = Column(JSON, nullable=False)
+    # OAuth tokens / API secrets (encrypted later)
+
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_connected = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    updated_at = Column(DateTime(timezone=False), onupdate=func.now())
+
+    user = relationship("User", back_populates="user_integrations")
 
 
 
