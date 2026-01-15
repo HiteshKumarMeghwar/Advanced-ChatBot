@@ -1,6 +1,7 @@
 import asyncio
 import time
 from core.config import HISTORY_SUMMARY_MEMORY_LIMIT
+from core.llm_limits import BACKGROUND_LLM_SEMAPHORE
 from graphs.memory_extract import extract_memory
 from graphs.state import ChatState
 import logging
@@ -16,26 +17,27 @@ async def extract_memory_background(state: ChatState, config=None):
     settings = await get_user_memory_settings_or_default(int(state["user_id"]))
 
     async def _background():
-        try:
-            # --------- extraction (episodic,semantic,procedural) memory --------------------
-            await extract_memory(
-                int(state["user_id"]),
-                state["thread_id"],
-                messages_snapshot,
-                config
-            )
-
-            # --------- summarization if >30 messages in current conversation --------------------
-            if len(messages_snapshot) > HISTORY_SUMMARY_MEMORY_LIMIT and settings["allow_long_conversation_memory"]:
-                await summarise_history_incremental(
+        async with BACKGROUND_LLM_SEMAPHORE:
+            try:
+                # --------- extraction (episodic,semantic,procedural) memory --------------------
+                await extract_memory(
                     int(state["user_id"]),
                     state["thread_id"],
-                    messages_snapshot[:-2],
+                    messages_snapshot,
                     config
                 )
 
-        except Exception:
-            logger.exception("Async memory extraction failed")
+                # --------- summarization if >30 messages in current conversation --------------------
+                if len(messages_snapshot) > HISTORY_SUMMARY_MEMORY_LIMIT and settings["allow_long_conversation_memory"]:
+                    await summarise_history_incremental(
+                        int(state["user_id"]),
+                        state["thread_id"],
+                        messages_snapshot[:-2],
+                        config
+                    )
+
+            except Exception:
+                logger.exception("Async memory extraction failed")
 
     asyncio.create_task(_background())
 

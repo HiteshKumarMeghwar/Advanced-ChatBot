@@ -28,7 +28,7 @@ from api.routes.expense import router as expense_router
 
 
 from contextlib import AsyncExitStack
-from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
+from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL_LARGEST_GPTOSS_20B, CHAT_MODEL_LARGEST_LLAMA_70B, CHAT_MODEL_SMALLEST_8B, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
 from services.chat_model import ChatModelCreator
 from services.mcp_bootstrap import bootstrap_mcp_servers
 from services.memory_maintenance import start_background_maintenance
@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
                 app.state.chatbot = raw_graph.compile(checkpointer=redis_saver)
                 logger.info("Chatbot graph READY")
         except Exception as exc:
-            logger.exception("Background Memory Maintenance issue -: %s", exc)
+            logger.exception("Chatbot graph compiling issue -: %s", exc)
 
         try:
             await start_background_maintenance(app)
@@ -100,10 +100,27 @@ async def lifespan(app: FastAPI):
 
         try:
             app.state.llms = {
-                "chat_base": ChatModelCreator(model_name=CHAT_MODEL, model_task=CHAT_MODEL_TEXT).groq_generator_llm,
-                "system": ChatModelCreator(model_name=CHAT_MODEL, model_task=CHAT_MODEL_TEXT, streaming=False).groq_generator_llm,
+                # ---------------- CHAT (FAST, STREAMING) ----------------
+                "chat_base": ChatModelCreator(
+                    model_name=CHAT_MODEL_LARGEST_GPTOSS_20B,
+                    model_task=CHAT_MODEL_TEXT,
+                    temperature=0.6,          # 👈 conversational
+                    max_new_tokens=1024,
+                    streaming=True,           # 👈 REQUIRED for UX
+                ).groq_generator_llm,
+
+                # ---------------- SYSTEM / EXTRACTION (STRONG, STABLE) ----------------
+                "system": ChatModelCreator(
+                    model_name=CHAT_MODEL_LARGEST_LLAMA_70B,
+                    model_task=CHAT_MODEL_TEXT,
+                    temperature=0.0,          # 👈 deterministic
+                    max_new_tokens=512,
+                    streaming=False,          # 👈 DO NOT STREAM extraction
+                ).groq_generator_llm,
             }
-            logger.info("LLMs Started.")
+
+            logger.info("LLMs Started successfully (chat=8B, system=70B).")
+
         except Exception as exc:
             logger.exception("LLM Initialization issue -: %s", exc)
 

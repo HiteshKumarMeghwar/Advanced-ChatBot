@@ -23,6 +23,7 @@ class ChatState(TypedDict):
 
     # Conversation
     messages: Annotated[list[BaseMessage], add_messages]
+    __bg_messages__: list[BaseMessage]
 
     # Routing / Intent
     intent: Optional[Literal["rag", "expense", "other_tool", "chat"]]

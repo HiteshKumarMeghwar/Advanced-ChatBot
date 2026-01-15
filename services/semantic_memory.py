@@ -129,7 +129,7 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
     index_suffix = "_pii" if detect_pii_type(fact_clean) else ""
 
     # 4) Build Document and push to FAISS (best-effort)
-    doc = Document(page_content=fact_clean, metadata={"user_id": user_id, "embedding_id": embedding_id, "pii": bool(index_suffix),})
+    doc = Document(page_content=fact_clean, metadata={"user_id": user_id, "saved_semantic_id": saved_id, "embedding_id": embedding_id, "pii": bool(index_suffix),})
     try:
         await VS.add_semantic_documents(user_id=user_id, documents=[doc], pii=index_suffix, db=AsyncSessionLocal())
     except Exception as e:

@@ -14,7 +14,6 @@ from db.models import SemanticMemory, UserMemorySetting
 from services.vector_db_faiss import FAISSVectorDB
 
 logger = logging.getLogger(__name__)
-VS = FAISSVectorDB.get_instance()
 
 
 # ------------------------------------------------------------------
@@ -30,6 +29,7 @@ async def _retention_days_for(user_id: int) -> int:
 # 2.  Decay **per user** using retention_until (or calculated)
 # ------------------------------------------------------------------
 async def decay_semantic_memory_once(batch_size: int = SEMANTIC_DECAY_BATCH) -> int:
+    VS = FAISSVectorDB.get_instance()
     async with AsyncSessionLocal() as db:
         # ---- oldest users with expired facts ----
         stmt = (

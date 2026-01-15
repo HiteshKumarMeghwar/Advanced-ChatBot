@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import insert
 from pydantic import BaseModel
-from core.config import CHAT_MODEL
+from core.config import CHAT_MODEL_SMALLEST_8B
 from core.database import get_db
 from api.dependencies import get_current_user
 from db.models import MessageFeedback, User
@@ -29,7 +29,7 @@ async def save_feedback(
         message_id=body.message_id,
         rating=body.rating,
         reason=body.reason.strip() if body.reason else None,
-        model=CHAT_MODEL,
+        model=CHAT_MODEL_SMALLEST_8B,
         tool_used=body.tool_used,
         latency_ms=body.latency_ms
     )

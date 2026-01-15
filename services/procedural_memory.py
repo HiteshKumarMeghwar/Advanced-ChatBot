@@ -3,7 +3,7 @@ import hashlib
 from db.database import AsyncSessionLocal
 from db.models import ProceduralMemory, UserMemorySetting
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, delete
+from sqlalchemy import func, select, delete
 import json
 import logging
 
@@ -30,30 +30,56 @@ async def save_rules(user_id: int, rules: list[dict]):
         return {"ok": False, "reason": "user_disabled"}
 
     if not rules:
-        return
+        return {"ok": True}
 
     async with AsyncSessionLocal() as db:
+        # fetch or create the single row
+        row = await db.scalar(
+            select(ProceduralMemory).filter_by(user_id=user_id).with_for_update()
+        )
+        if not row:
+            row = ProceduralMemory(user_id=user_id, rules="[]", confidence=0.0, fingerprint="")
+            db.add(row)
+
+        # current list + conf
+        existing_rules = _unpack_rules(row.rules)
+        max_conf = row.confidence or 0.0
+
+        # append / dedup
         for r in rules:
             text = r.get("rule") if isinstance(r, dict) else r
             conf = r.get("confidence", 1.0) if isinstance(r, dict) else 1.0
-            fp = _fingerprint(text)
-            # Simple dedup by exact text; you can fingerprint similarly to semantic
-            existing = await db.scalar(select(ProceduralMemory).filter_by(user_id=user_id, fingerprint=fp))
-            if existing:
-                existing.confidence = max(existing.confidence or 0.0, conf)
-                existing.updated_at = datetime.now(timezone.utc)
-            else:
-                # only ONE row per user (unique constraint on user_id) so that's why delete first
-                await db.execute(
-                    delete(ProceduralMemory).where(ProceduralMemory.user_id == user_id)
-                )
-                db.add(ProceduralMemory(user_id=user_id, rules=text, confidence=conf, fingerprint=fp))
+            if text not in existing_rules:
+                existing_rules.append(text)
+            max_conf = max(max_conf, conf)
+
+        # save back
+        row.rules = _pack_rules(existing_rules)
+        row.confidence = max_conf
+        row.fingerprint = _fingerprint(_pack_rules(existing_rules))  # cheap global hash
+        row.updated_at = func.now()
         await db.commit()
     logger.info("Saved %d procedural rules for user %s", user_id)
     return {"ok": True}
 
 async def get_rules(user_id: int) -> list[str]:
     async with AsyncSessionLocal() as db:
-        rows = await db.execute(select(ProceduralMemory).filter_by(user_id=user_id, active=True))
-        rules = [r.rule for r in rows.scalars().all()]
-        return rules
+        row = await db.scalar(
+            select(ProceduralMemory).filter_by(user_id=user_id, active=True)
+        )
+        return _unpack_rules(row.rules) if row else []
+
+
+# ---------- helpers ----------
+def _pack_rules(rules: list[str]) -> str:
+    """Store list as JSON string."""
+    return json.dumps(rules, ensure_ascii=False)
+
+def _unpack_rules(raw: str | None) -> list[str]:
+    """Load JSON string back to list."""
+    if not raw:
+        return []
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []   # fallback for corrupted data

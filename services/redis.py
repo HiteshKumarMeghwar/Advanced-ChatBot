@@ -81,7 +81,7 @@ async def _persist_episode(user_id: int, thread_id: str, role: str, content: str
 async def get_summary(user_id: int, thread_id: str) -> str | None:
     key = f"summary:{user_id}:{thread_id}"
     raw = await pool.get(key)
-    return raw.decode() if raw else None
+    return raw if raw else None
 
 async def set_summary(user_id: int, thread_id: str, summary: str):
     key = f"summary:{user_id}:{thread_id}"

@@ -60,7 +60,7 @@ async def get_memory_manager(config):
     llms = config.get("configurable", {}).get("llms")
     if _memory_manager is None:
 
-        llm = llms["system"].with_structured_output(MemoryExtraction)
+        llm = llms["system"]
 
         _memory_manager = create_memory_manager(
             llm, # ← Correct: positional model argument
@@ -77,7 +77,9 @@ async def get_memory_manager(config):
             ✗ "Sidhu Moose Wala passed away in 2022" → DO NOT extract (general knowledge)
             ✗ "User seems sad about Sidhu Moose Wala" → DO NOT extract (inference)
             - For procedural: only extract if user says "Always do X" or "From now on, do Y".
-            - If nothing meets the strict criteria with high confidence (>0.8), return empty lists.
+            - If the user has NOT stated any durable personal fact, 
+                - return ALL lists empty with NO items.
+                - Do NOT invent filler memories.
             - Output exactly ONE clean JSON object. No repetition. No extra text.
             - Keep lists short: maximum 3 items per category unless explicitly repeated.
             - Prefer higher confidence for direct quotes.
@@ -105,7 +107,7 @@ async def extract_memory(
     start = time.perf_counter()
 
     window: List[BaseMessage] = [
-        m for m in all_messages[-6:]
+        m for m in all_messages[-3:]
         if hasattr(m, "content") and str(m.content).strip()
     ]
 
@@ -117,8 +119,9 @@ async def extract_memory(
         manager = await get_memory_manager(config)
 
         conversation: List[Dict[str, str]] = [
-            {"role": m.type, "content": str(m.content)}
+            {"role": "user", "content": str(m.content)}
             for m in window
+            if m.type == "human"
         ]
 
         extracted = await manager.ainvoke(

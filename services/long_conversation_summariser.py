@@ -28,7 +28,12 @@ async def summarise_history(user_id: int, thread_id: str, messages: list, llms) 
     llm = llms["system"]
     conversation = "\n".join(f"{m.type}: {m.content}" for m in messages)
     try:
-        resp = await asyncio.wait_for(llm.ainvoke([SUMMARY_PROMPT.format(conversation=conversation)]), timeout=LLM_TIMEOUT)
+        prompt = SystemMessage(
+            content=SUMMARY_PROMPT.content.format(
+                conversation=conversation
+            )
+        )
+        resp = await asyncio.wait_for(llm.ainvoke([prompt]), timeout=LLM_TIMEOUT)
         summary = resp.content.strip()
     except Exception as e:
         logger.warning("Summary failed: %s", e)
@@ -82,13 +87,13 @@ async def summarise_history_incremental(
     llm = llms["system"]
     delta_text = "\n".join(f"{m.type}: {m.content}" for m in new_msgs)
     try:
-        resp = await asyncio.wait_for(llm.ainvoke(
-            [
-                DELTA_PROMPT.format(
-                    existing_summary="\n".join(lines[1:]),  # skip header
-                    new_messages=delta_text,
-                )
-            ]),
+        prompt = SystemMessage(
+            content=DELTA_PROMPT.content.format(
+                existing_summary="\n".join(lines[1:]),
+                new_messages=delta_text,
+            )
+        )
+        resp = await asyncio.wait_for(llm.ainvoke([prompt]),
             timeout=LLM_TIMEOUT,
         )
         updated = f"::{len(all_messages)}\n" + resp.content.strip()

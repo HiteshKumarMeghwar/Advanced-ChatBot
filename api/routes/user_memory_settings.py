@@ -1,5 +1,5 @@
 from typing import List, Literal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from api.dependencies import get_current_user
 from core.config import SEMANTIC_DECAY_DAYS, USER_MEMORY_DEFAULTS
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -294,22 +294,6 @@ async def toggle_memory_setting(
     return {"field": field, "enabled": new_val}
 
 
-@router.delete("/delete_all/{memory_type}")
-async def delete_all_memory(
-    memory_type: Literal["episodic", "semantic", "procedural"],
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    model = {
-        "episodic": EpisodicMemory,
-        "semantic": SemanticMemory,
-        "procedural": ProceduralMemory,
-    }[memory_type]
-
-    stmt = delete(model).where(model.user_id == user.id)
-    await db.execute(stmt)
-    await db.commit()
-    return {"ok": True, "type": memory_type}
 
 
 # ---------- bulk / wipe helpers ----------
@@ -324,35 +308,37 @@ def _get_model(type_: str):
         raise HTTPException(status_code=400, detail="Invalid memory type")
     return MEMORY_MODELS[type_]
 
-# DELETE /memory/{type}/delete_all
-@router.delete("/memory/{type}/delete_all")
+@router.post("/{memory_type}/delete_all")
 async def delete_all_memories(
-    type_: str,
+    memory_type: Literal["episodic", "semantic", "procedural"],
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    model = _get_model(type_)
-    stmt = delete(model).where(model.user_id == user.id)
-    await db.execute(stmt)
+    model = _get_model(memory_type)
+    await db.execute(
+        delete(model).where(model.user_id == user.id)
+    )
     await db.commit()
     return {"ok": True}
 
-# POST /memory/{type}/delete_selected   {"ids": number[]}
+
+# POST /{type}/delete_selected   {"ids": number[]}
 class IdsPayload(BaseModel):
     ids: List[int]
 
-@router.post("/memory/{type}/delete_selected")
+@router.post("/{memory_type}/delete_selected")
 async def delete_selected_memories(
-    type_: str,
-    payload: IdsPayload,
+    memory_type: Literal["episodic", "semantic", "procedural"],
+    payload: IdsPayload = Body(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    model = _get_model(type_)
-    stmt = delete(model).where(
-        model.user_id == user.id,
-        model.id.in_(payload.ids)
+    model = _get_model(memory_type)
+    res = await db.execute(
+        delete(model).where(
+            model.user_id == user.id,
+            model.id.in_(payload.ids)
+        )
     )
-    res = await db.execute(stmt)
     await db.commit()
     return {"deleted": res.rowcount}

@@ -6,8 +6,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from tools.gather_tools import gather_tools
 from graphs.bind_tool_with_llm import groq_with_tools_llm
-from services.chat_model import ChatModelCreator
-from core.config import CHAT_MODEL, CHAT_MODEL_TEXT, LLM_TIMEOUT
+from core.config import LLM_TIMEOUT
 from graphs.state import ChatState
 import logging
 

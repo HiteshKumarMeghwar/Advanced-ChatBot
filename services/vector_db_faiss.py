@@ -112,7 +112,7 @@ class FAISSVectorDB:
         self,
         user_id: int,
         documents: List[Document],
-        pii: bool,
+        pii: str,
         db: DBSession,
     ) -> None:
         """
@@ -151,9 +151,9 @@ class FAISSVectorDB:
                 db.add(
                     SemanticEmbedding(
                         user_id=user_id,
-                        embedding_id=doc.metadata["embedding_id"],
                         vector_id=vector_id,
                         embedding_model=EMBEDDING_MODEL,
+                        semantic_memory_id=doc.metadata["saved_semantic_id"],
                     )
                 )
 

@@ -11,7 +11,7 @@ import hashlib
 import secrets
 import json
 
-from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL, USER_MEMORY_DEFAULTS, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME, GOOGLE_CLIENT_ID
+from core.config import JWT_SECRET, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, USAGE_LIMIT, CHAT_MODEL_SMALLEST_8B, USER_MEMORY_DEFAULTS, USER_THEME, FRONTEND_URL, COOKIE_NAME, COOKIE_SECURE, COOKIE_SAMESITE, REFRESH_COOKIE_NAME, GOOGLE_CLIENT_ID
 from core.database import get_db
 from db.models import User, AuthToken, Tool, UserMemorySetting, UserTool, UserSettings
 from api.schemas.user import UserCreate, UserLogin, Token, ForgotPassword, ResetPassword
@@ -386,7 +386,7 @@ async def _create_default_settings(db: AsyncSession, user_id: int) -> None:
 
     db.add(UserSettings(
         user_id=user_id,
-        preferred_model=CHAT_MODEL,
+        preferred_model=CHAT_MODEL_SMALLEST_8B,
         theme=USER_THEME,
         notification_enabled=True,
         preferred_tools = json.dumps([t.name for t in global_tools])

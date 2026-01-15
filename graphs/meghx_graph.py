@@ -15,8 +15,8 @@ import copy
 logger = logging.getLogger(__name__)
 
 # ------------------ CHATBOT INSTANCE ----------------------
-groq_generator_llm = None
-groq_llm_with_tools = None
+# groq_generator_llm = None
+# groq_llm_with_tools = None
 
 
 # --------------------- CHAT NODE ------------------------------
@@ -120,22 +120,20 @@ async def build_graph(db_session=None, checkpointer=None):
 
     graph = StateGraph(ChatState)
     
-    # graph.add_node("inject_memory", inject_memory)
+    graph.add_node("inject_memory", inject_memory)
     graph.add_node("meghx_node", meghx_node)
     graph.add_node("parent", await build_graph_parent(checkpointer=checkpointer))
-    # graph.add_node("snapshot_messages_node", snapshot_messages_node)
-    # graph.add_node("extract_memory_background", extract_memory_background)
-    # graph.add_node("prune_messages_node", prune_messages_node)
+    graph.add_node("snapshot_messages_node", snapshot_messages_node)
+    graph.add_node("extract_memory_background", extract_memory_background)
+    graph.add_node("prune_messages_node", prune_messages_node)
 
-    # graph.add_edge(START, "inject_memory")
-    # graph.add_edge("inject_memory", "meghx_node")
-    graph.add_edge(START, "meghx_node")
+    graph.add_edge(START, "inject_memory")
+    graph.add_edge("inject_memory", "meghx_node")
     graph.add_edge("meghx_node", "parent")
-    graph.add_edge("parent", END)
-    # graph.add_edge("parent", "snapshot_messages_node")
-    # graph.add_edge("snapshot_messages_node", "extract_memory_background")
-    # graph.add_edge("extract_memory_background", "prune_messages_node")
-    # graph.add_edge("prune_messages_node", END)
+    graph.add_edge("parent", "snapshot_messages_node")
+    graph.add_edge("snapshot_messages_node", "extract_memory_background")
+    graph.add_edge("extract_memory_background", "prune_messages_node")
+    graph.add_edge("prune_messages_node", END)
 
     # >>>  DO NOT COMPILE HERE  <<<
     return graph          
