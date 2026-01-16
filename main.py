@@ -28,7 +28,7 @@ from api.routes.expense import router as expense_router
 
 
 from contextlib import AsyncExitStack
-from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL_LARGEST_GPTOSS_20B, CHAT_MODEL_LARGEST_LLAMA_70B, CHAT_MODEL_SMALLEST_8B, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
+from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL_HF_LLAMA_8B, CHAT_MODEL_LARGEST_GPTOSS_20B, CHAT_MODEL_LARGEST_LLAMA_70B, CHAT_MODEL_SMALLEST_8B, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
 from services.chat_model import ChatModelCreator
 from services.mcp_bootstrap import bootstrap_mcp_servers
 from services.memory_maintenance import start_background_maintenance
@@ -117,6 +117,15 @@ async def lifespan(app: FastAPI):
                     max_new_tokens=512,
                     streaming=False,          # 👈 DO NOT STREAM extraction
                 ).groq_generator_llm,
+
+                # ---------------- CHAT (POST PROCESSING, STREAMING) ----------------
+                "chat_post": ChatModelCreator(
+                    model_name=CHAT_MODEL_HF_LLAMA_8B,
+                    model_task=CHAT_MODEL_TEXT,
+                    temperature=0.6,          # 👈 conversational
+                    max_new_tokens=1024,
+                    streaming=True,           # 👈 REQUIRED for UX
+                ).generator_llm,
             }
 
             logger.info("LLMs Started successfully (chat=8B, system=70B).")

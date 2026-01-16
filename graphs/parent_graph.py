@@ -276,13 +276,18 @@ async def post_processor(state: ChatState, config=None) -> ChatState:
     # 2.  Otherwise build the short list and call the model
     # ----------------------------------------------------------
     msgs = [system_message,messages[-1]]
-    base_llm = llms["chat_base"]
+    base_llm = llms["chat_post"]
 
     try:
         response = await asyncio.wait_for(base_llm.ainvoke(msgs, config=config), timeout=LLM_TIMEOUT)
         state["messages"][-1] = response
     except asyncio.TimeoutError:
         logger.error("Refine-LLM call timed out")
+        return state
+
+    except Exception as e:
+        logger.exception("Post-processor failed, returning original message")
+        return state
 
     trace["events"].append({
         "node": "post_processor",
