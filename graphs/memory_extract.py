@@ -105,6 +105,7 @@ async def extract_memory(
 
     MEMORY_EXTRACTION_TOTAL.inc()
     start = time.perf_counter()
+    trace = config.get("configurable", {}).get("trace")
 
     window: List[BaseMessage] = [
         m for m in all_messages[-3:]
@@ -216,6 +217,11 @@ async def extract_memory(
                 logger.info(f"Saved {len(procedural_rules)} procedural rules")
             except Exception as e:
                 logger.warning(f"Procedural save failed: {e}")
+
+        trace["ui_events"].append({
+            "type": "memory_updated",
+            "severity": "success",
+        })
 
     except Exception as e:
         logger.exception(f"Memory extraction failed: {e}")

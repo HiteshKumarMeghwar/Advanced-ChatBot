@@ -40,6 +40,24 @@ async def inject_memory(state: ChatState, config=None):
     trace["events"].append({
         "node": "inject_memory",
         "latency_ms": (time.perf_counter() - t0) * 1000,
+        "memory": {
+            "episodic": len(state["episodic_memories"]),
+            "semantic": len(state["semantic_memories"]),
+            "procedural": len(state["procedural_memories"]),
+            "summary": bool(state["long_history_memories"]),
+        }
     })
+
+    # 👇 UI-safe signal
+    if any([
+        state["episodic_memories"],
+        state["semantic_memories"],
+        state["procedural_memories"],
+        state["long_history_memories"],
+    ]):
+        trace["ui_events"].append({
+            "type": "memory_used",
+            "severity": "info",
+        })
 
     return state

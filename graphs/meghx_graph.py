@@ -90,20 +90,34 @@ async def meghx_node(state: ChatState, config=None):
     trace["events"].append({
         "node": "meghx_node",
         "latency_ms": (time.perf_counter() - t0) * 1000,
+        "llm": {
+            "tools_used": bool(last_msg.tool_calls),
+            "llm_timeout": LLM_TIMEOUT,
+        }
     })
     return state
 
 
 async def snapshot_messages_node(state: ChatState, config=None):
     state["__bg_messages__"] = copy.deepcopy(state["messages"])
+    trace = config.get("configurable", {}).get("trace")
+    trace["events"].append({
+        "node": "snapshot_messages",
+        "messages": len(state["__bg_messages__"]),
+    })
     return state
 
 # deletion from checkpointer >30 messages 
 async def prune_messages_node(state: ChatState, config=None):
+    trace = config.get("configurable", {}).get("trace")
     msgs = state["messages"]
     if len(msgs) < HISTORY_SUMMARY_MEMORY_LIMIT:
         return state
-
+    
+    trace["ui_events"].append({
+        "type": "conversation_compacted",
+        "severity": "info",
+    })
     return {
         "messages": [RemoveMessage(id=m.id) for m in msgs[:-2]]
     }

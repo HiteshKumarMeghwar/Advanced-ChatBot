@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 pool = redis.from_url(REDIS_URL, decode_responses=True)
 
+async def get_redis() -> redis:
+    return pool
 
 # ____________________ token ___________________________
 

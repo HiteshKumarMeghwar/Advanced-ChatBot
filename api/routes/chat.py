@@ -73,6 +73,7 @@ async def chat_stream_endpoint(
                 "trace": {
                     "start_ts": time.perf_counter(),
                     "events": [],
+                    "ui_events": [],
                 },
             }
         }
@@ -115,6 +116,7 @@ async def chat_stream_endpoint(
             was_interrupted = False
             final_emitted = False
             real_message_id = None
+            trace = config["configurable"]["trace"]
 
             if req.edit_message_id:
                 real_message_id = req.edit_message_id + 1
@@ -216,6 +218,11 @@ async def chat_stream_endpoint(
 
                 if was_interrupted and not full_text.strip():
                     full_text = interrupt_message  # Use the interrupt summary as content
+
+                # later when sending telemetry:
+                if trace["ui_events"]:
+                    yield f"data: {json.dumps({'type': 'telemetry', 'ui_events': trace['ui_events']})}\n\n"
+                    trace["ui_events"].clear()
 
                 yield "data: [DONE]\n\n"
                 

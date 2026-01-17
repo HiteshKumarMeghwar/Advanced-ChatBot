@@ -44,6 +44,7 @@ async def extract_memory_background(state: ChatState, config=None):
     trace["events"].append({
         "node": "extract_memory",
         "latency_ms": (time.perf_counter() - t0) * 1000,
+        "background": True,
     })
     total = (time.perf_counter() - trace["start_ts"]) * 1000
     logger.info(
