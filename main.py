@@ -28,7 +28,7 @@ from api.routes.expense import router as expense_router
 
 
 from contextlib import AsyncExitStack
-from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL_HF_LLAMA_8B, CHAT_MODEL_LARGEST_GPTOSS_20B, CHAT_MODEL_LARGEST_LLAMA_70B, CHAT_MODEL_SMALLEST_8B, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL
+from core.config import ASYNC_REDIS_CHECKPOINTER_URL, CHAT_MODEL_HF_LLAMA_8B, CHAT_MODEL_LARGEST_GPTOSS_20B, CHAT_MODEL_LARGEST_LLAMA_70B, CHAT_MODEL_SMALLEST_8B, CHAT_MODEL_TEXT, DEFAULT_CHECKPOINTER_TTL, VISSION_CHAT_MODEL_METALLAMA_17B
 from services.chat_model import ChatModelCreator
 from services.mcp_bootstrap import bootstrap_mcp_servers
 from services.memory_maintenance import start_background_maintenance
@@ -126,9 +126,18 @@ async def lifespan(app: FastAPI):
                     max_new_tokens=1024,
                     streaming=True,           # 👈 REQUIRED for UX
                 ).generator_llm,
+
+                # ---------------- VISSION (TEXT+IMAGE, STREAMING) ----------------
+                "vision": ChatModelCreator(
+                    model_name=VISSION_CHAT_MODEL_METALLAMA_17B,
+                    model_task=CHAT_MODEL_TEXT,
+                    temperature=0.3,        
+                    max_new_tokens=1024,
+                    streaming=True,         
+                ).groq_generator_llm,
             }
 
-            logger.info("LLMs Started successfully (chat=8B, system=70B).")
+            logger.info("LLMs Started successfully (chat=7B, vission=17b, system=70B).")
 
         except Exception as exc:
             logger.exception("LLM Initialization issue -: %s", exc)

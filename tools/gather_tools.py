@@ -20,7 +20,7 @@ async def gather_tools() -> List:
     """
 
     # Await MCP tools and get the actual list
-    mcp_tools = await multiserver_mcpclient_tools()
+    mcp_tools = await multiserver_mcpclient_tools(tool_scope="all")
 
     # Combine all tools into a single flat list
     tools = [

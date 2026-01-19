@@ -7,7 +7,8 @@ from core.database import get_db
 from db.models import Thread, User, Document, Message
 from api.schemas.thread import ThreadBase, ThreadRead, ThreadDelete, ThreadReadWithDocs
 from pydantic import UUID4
-from services.vector_db_faiss import FAISSVectorDB
+# from services.vector_db_faiss import FAISSVectorDB
+from services.vector_db_qdrant_rag import QdrantVectorDBRAG
 from api.dependencies import get_current_user
 from pathlib import Path
 import logging
@@ -119,7 +120,7 @@ async def get_thread(
 async def delete_thread(
     thread_id: UUID4,
     db: AsyncSession = Depends(get_db),
-    vector_db: FAISSVectorDB = Depends(FAISSVectorDB.get_instance),
+    vector_db: QdrantVectorDBRAG = Depends(QdrantVectorDBRAG.get_instance),
     user: User = Depends(get_current_user),
 ):
     try:
@@ -148,8 +149,11 @@ async def delete_thread(
 
         # 3. delete vector index
         index_removed = False
-        if await vector_db.exists(str(thread_id)):
-            await vector_db.delete_thread_index(str(thread_id))
+        if await vector_db.thread_has_vectors(
+            user_id=user.id,
+            thread_id=thread_id
+        ):
+            await vector_db.delete_thread(user_id=user.id, thread_id=thread_id)
             index_removed = True
 
         # 4. cascade delete child rows

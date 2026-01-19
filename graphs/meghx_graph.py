@@ -1,5 +1,5 @@
 # graphs/chat_graph.py
-from langchain_core.messages import AIMessage, RemoveMessage
+from langchain_core.messages import AIMessage, RemoveMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 from graphs.dynamic_prompt import render_system_prompt
 from graphs.memory_extract_background import extract_memory_background
@@ -24,15 +24,63 @@ async def meghx_node(state: ChatState, config=None):
 
     t0 = time.perf_counter()
     system_message = await render_system_prompt(state)
-    msgs = [system_message, *state["messages"][-2:]]
+    # msgs = [system_message, *state["messages"][-2:]]
+    msgs = [system_message]
+    last_user_msg = state["messages"][-1]
     user_id = config.get("configurable", {}).get("user_id")
     llms = config.get("configurable", {}).get("llms")
     allowed_tools = config.get("configurable", {}).get("allowed_tools")
     trace = config.get("configurable", {}).get("trace")
+    provider = config.get("configurable", {}).get("provider", "groq")
+
+    # CHECK FOR IMAGE 
+    if provider == "openai":
+        if state.get("ocr_text"):
+            content = [
+                {"type": "text", "text": last_user_msg.content},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        # ✅ BASE64 DATA URL — THIS IS THE KEY
+                        "url": f"data:image/jpeg;base64,{state['ocr_text']}"
+                    }
+                }
+            ]
+
+            msgs.append(HumanMessage(content=content))
+        else:
+            msgs.append(last_user_msg)
+
+    elif provider == "groq":
+        if state.get("image_url"):
+            vision_prompt = f"""
+            User message:
+            {last_user_msg.content}
+
+            Image reference (URL):
+            {state['image_url']}
+            """
+
+        if state.get("ocr_text"):
+            vision_prompt += f"""
+
+            OCR context (may be noisy, secondary to image):
+            {state['ocr_text']}
+            """
+
+            vision_prompt += """
+            Instructions:
+            You are a vision-capable model. Use the image reference above as visual context.
+            Do NOT assume OCR is perfect. Prefer visual reasoning.
+            """
+
+            msgs.append(HumanMessage(content=vision_prompt.strip()))
+        else:
+            msgs.append(last_user_msg)
 
     
     
-    groq_generator_llm = llms["chat_base"]
+    groq_generator_llm = llms["vision"] if state.get("image_url") else llms["chat_base"]
     if allowed_tools:
         groq_llm_with_tools = groq_generator_llm.bind_tools(allowed_tools)
     else:

@@ -4,8 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from core.database import get_db
 from db.models import Document, Thread, User, DocumentChunk
 from services.ingestion import DocumentIngestor
-# from services.vector_db_faiss import FAISSVectorDB
-from services.vector_db_qdrant_rag import QdrantVectorDBRAG
+from services.vector_db_faiss import FAISSVectorDB
 from langchain_core.documents import Document as LCDocument
 from pathlib import Path
 from pydantic import UUID4
@@ -15,7 +14,6 @@ from core.config import UPLOAD_DIR, ALLOWED_EXT, MAX_SIZE, MIME_MAP
 from api.dependencies import get_current_user
 from typing import List
 import logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +25,7 @@ async def upload_document(
     files: List[UploadFile] = File(...),
     thread_id: UUID4 = Form(...),              # ← client supplies
     db: AsyncSession = Depends(get_db),
-    vector_db: QdrantVectorDBRAG = Depends(QdrantVectorDBRAG.get_instance),  # ← instance
+    vector_db: FAISSVectorDB = Depends(FAISSVectorDB.get_instance),  # ← instance
     user: User = Depends(get_current_user),    # ← JWT (demo fallback)
 ):
     
@@ -147,7 +145,6 @@ async def upload_document(
             document_path=document_path,
             document_name=document_name,
             thread_id=thread_id_value,
-            user_id=user_id_value,
             vector_db=vector_db,
         )
 
@@ -175,11 +172,11 @@ async def delete_document(
     thread_id: UUID4,
     doc_id: int,
     db: AsyncSession = Depends(get_db),
-    vector_db: QdrantVectorDBRAG = Depends(QdrantVectorDBRAG.get_instance),
+    vector_db: FAISSVectorDB = Depends(FAISSVectorDB.get_instance),
     user: User = Depends(get_current_user),
 ):
         try:
-            # Fetch document safely
+            # 1️⃣ Fetch document safely
             stmt = select(Document).where(
                 Document.id == doc_id,
                 Document.thread_id == str(thread_id),
@@ -194,15 +191,41 @@ async def delete_document(
                     "doc_id": doc_id,
                     "thread_id": str(thread_id),
                 }
-
-            # Delete vectors of this document
-            deleted_count = await vector_db.delete_document(
-                user_id=user.id,
-                thread_id=str(thread_id),
-                document_id=doc_id
+            
+            # fetch remaining chunks (excluding deleted document)
+            stmt = select(DocumentChunk).join(Document).where(
+                Document.thread_id == str(thread_id),
+                Document.user_id == user.id,
+                Document.id != doc.id,   # exclude deleted document
             )
+            remaining_chunks = (await db.execute(stmt)).scalars().all()
 
-            # Delete physical file (non-blocking safety)
+            # rebuild FAISS index
+            if remaining_chunks:
+                langchain_docs = [
+                    LCDocument(
+                        page_content=chunk.text,
+                        metadata={
+                            "document_id": chunk.document_id,
+                            "chunk_id": chunk.id,
+                            "chunk_index": chunk.chunk_index,
+                        }
+                    )
+                    for chunk in remaining_chunks
+                ]
+
+                await vector_db.rebuild_thread_index(
+                    thread_id=str(thread_id),
+                    documents=langchain_docs,
+                )
+                index_removed = False
+            else:
+                if await vector_db.exists(str(thread_id)):
+                    await vector_db.delete_thread_index(str(thread_id))
+                index_removed = True
+
+
+            # 2️⃣ Delete physical file (non-blocking safety)
             try:
                 Path(doc.file_path).unlink(missing_ok=True)
             except Exception as exc:
@@ -220,10 +243,10 @@ async def delete_document(
             # 5️⃣ Return structured response
             return {
                 "status": "deleted",
+                "vector_index_removed": index_removed,
                 "doc_id": doc.id,
                 "thread_id": str(thread_id),
                 "file_name": doc.file_name,
-                "vectors_deleted": deleted_count,
             }
 
         except HTTPException:

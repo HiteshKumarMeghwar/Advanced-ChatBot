@@ -594,7 +594,7 @@ def should_call_tool(state: ChatState):
 async def build_expense_graph(checkpointer=None):
     g = StateGraph(ChatState)
 
-    mcp_tools = await multiserver_mcpclient_tools()
+    mcp_tools = await multiserver_mcpclient_tools(tool_scope="expense")
     g.add_node("expense_router", expense_router)
     g.add_node("expense_draft_data", expense_draft_data)
     g.add_node("expense_agent", expense_agent)

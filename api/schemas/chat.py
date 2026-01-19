@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
     edit_message_id: Optional[int] = None
     query: str
     image_url: Optional[str] = None
+    ocr_text: Optional[str] = None
 
 class ChatResponse(BaseModel):
     role: str

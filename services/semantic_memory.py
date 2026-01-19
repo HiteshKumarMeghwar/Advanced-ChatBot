@@ -4,7 +4,8 @@ import hashlib
 from typing import List, Optional
 from core.config import RAG_TOP_K, SEMANTIC_DECAY_DAYS, SEMANTIC_DEDUP_SIM_THRESHOLD, CONFIDENCE_THRESHOLD
 from services.user_memory_settings_and_defaults import get_user_memory_settings_or_default
-from services.vector_db_faiss import FAISSVectorDB
+# from services.vector_db_faiss import FAISSVectorDB
+from services.vector_db_qdrant import QdrantVectorDB
 from db.database import AsyncSessionLocal
 from db.models import SemanticMemory, UserMemorySetting
 from langchain_core.documents import Document
@@ -17,38 +18,20 @@ from services.memory_metrics import SEMANTIC_VERSIONED_TOTAL
 
 
 logger = logging.getLogger(__name__)
-VS = FAISSVectorDB.get_instance()
+VS = QdrantVectorDB.get_instance()
 
 def fingerprint_text(text: str) -> str:
     norm = " ".join(text.lower().strip().split())
     h = hashlib.blake2b(norm.encode("utf-8"), digest_size=12).hexdigest()
     return f"fp_{h}"
 
-async def find_nearest_duplicate(user_id: int, fact: str, top_k: int = 1) -> Optional[dict]:
-    """
-    Use VS.query as a text query fallback; returns top hit dict or None.
-    Interpreting score: depends on your FAISS impl; we assume higher score => more similar (cosine-like).
-    You may need to invert logic if your index returns distances.
-    """
-    try:
-        hits = []
-        hits += await VS.query(
-            thread_id=f"semantic_{user_id}",
-            query=fact,
-            top_k=top_k,
-            normalise=True,
-        )
-
-        hits += await VS.query(
-            thread_id=f"semantic_{user_id}_pii",
-            query=fact,
-            top_k=top_k,
-            normalise=True,
-        )
-        return hits[0] if hits else None
-    except Exception as e:
-        logger.warning("Semantic delta query failed: %s", e)
-        return None
+async def find_nearest_duplicate(user_id: int, fact: str):
+    hits = await VS.query(
+        user_id=user_id,
+        query=fact,
+        top_k=1,
+    )
+    return hits[0] if hits else None
 
 async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
     """
@@ -128,10 +111,21 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
 
     index_suffix = "_pii" if detect_pii_type(fact_clean) else ""
 
-    # 4) Build Document and push to FAISS (best-effort)
-    doc = Document(page_content=fact_clean, metadata={"user_id": user_id, "saved_semantic_id": saved_id, "embedding_id": embedding_id, "pii": bool(index_suffix),})
+    doc = Document(
+        page_content=fact_clean,
+        metadata={
+            "user_id": user_id,
+            "embedding_id": embedding_id,
+            "saved_semantic_id": saved_id,
+            "pii": bool(index_suffix),
+            "fingerprint": fp,
+            "confidence": confidence,
+            "retention_until": retention_until.timestamp(),
+        },
+    )
+
     try:
-        await VS.add_semantic_documents(user_id=user_id, documents=[doc], pii=index_suffix, db=AsyncSessionLocal())
+        await VS.add_semantic_documents(user_id, [doc], db=AsyncSessionLocal())
     except Exception as e:
         logger.error("Failed to add semantic vector for user %s: %s", user_id, e)
         # NOT raising: semantic fact persisted in MySQL — vector is optional
@@ -143,44 +137,53 @@ async def save_semantic_fact(user_id: int, fact: str, confidence: float = 0.95):
 async def query_semantic_facts(user_id: int, query: str, top_k: int = 1) -> List[str]:
     now = datetime.now(timezone.utc)
 
-    # 1️⃣ Load active (non-expired) semantic memory IDs
     async with AsyncSessionLocal() as db:
-        rows = await db.execute(
-            select(SemanticMemory.embedding_id, SemanticMemory.fact)
-            .where(
+        result = await db.execute(
+            select(
+                SemanticMemory.embedding_id,
+                SemanticMemory.fact,
+                SemanticMemory.fingerprint,
+            ).where(
                 and_(
                     SemanticMemory.user_id == user_id,
                     SemanticMemory.retention_until > now,
                 )
             )
         )
-        active_ids = {r.embedding_id for r in rows}
-        encrypted_map = {r.embedding_id: r.fact for r in rows}
+        rows = result.all()
 
-    hits = []
+    active_embeddings = {r.embedding_id for r in rows}
+    fingerprint_map = {r.embedding_id: r.fingerprint for r in rows}
+    fact_map = {r.embedding_id: r.fact for r in rows}
 
-    hits += await VS.query(
-        thread_id=f"semantic_{user_id}",
+    hits = await VS.query(
+        user_id=user_id,
         query=query,
         top_k=top_k,
-        normalise=True,
-    )
-
-    hits += await VS.query(
-        thread_id=f"semantic_{user_id}_pii",
-        query=query,
-        top_k=top_k,
-        normalise=True,
+        pii=None,
     )
 
     results: List[str] = []
 
     for h in hits:
         embedding_id = h.get("metadata", {}).get("embedding_id")
-        if embedding_id not in active_ids:
-            continue  # ⛔ expired or unknown
+        if embedding_id not in active_embeddings:
+            # fallback: fingerprint match (thread-agnostic)
+            hit_text = h.get("content") or h.get("page_content")
+            if not hit_text:
+                continue
 
-        content = encrypted_map.get(embedding_id)
+            hit_fp = fingerprint_text(hit_text)
+            matched = next(
+                (eid for eid, fp in fingerprint_map.items() if fp == hit_fp),
+                None
+            )
+            if not matched:
+                continue
+
+            embedding_id = matched
+
+        content = fact_map.get(embedding_id)
         if not content:
             continue
 

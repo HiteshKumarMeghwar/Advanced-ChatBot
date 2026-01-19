@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from PIL import Image
 import io
 from api.dependencies import get_current_user
-from core.config import VISION_PROVIDER
+from core.config import LLM_TIMEOUT, VISION_PROVIDER
 import pytesseract
 
 from db.models import User
@@ -66,7 +66,7 @@ def extract_text_from_image_openai(b64_image: str) -> str:
         ],
     }
 
-    r = httpx.post(url, headers=headers, json=payload, timeout=30)
+    r = httpx.post(url, headers=headers, json=payload, timeout=LLM_TIMEOUT)
     if r.status_code != 200:
         raise RuntimeError("LLM vision call failed")
     return r.json()["choices"][0]["message"]["content"].strip()
@@ -85,7 +85,8 @@ async def parse_image(file: UploadFile = File(...)):
 
     provider = VISION_PROVIDER  # cpu | openai
     if provider == "openai":
-        text = extract_text_from_image_openai(b64)
+        # text = extract_text_from_image_openai(b64)
+        text = b64
     else:
         text = extract_text_from_image_tesseract(b64)
 

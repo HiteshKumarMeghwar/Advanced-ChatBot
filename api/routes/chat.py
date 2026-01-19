@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from api.dependencies import get_current_user
+from core.config import VISION_PROVIDER
 from db.models import Message, User, Thread
 from services.message_service import create_message_by_api, create_or_update_message
 from api.schemas.chat import ChatRequest, ChatResponse
@@ -52,6 +53,10 @@ async def chat_stream_endpoint(
             role="user",
             content=req.query,
             image_url=req.image_url,
+            json_metadata={
+                "image_url": req.image_url,
+                "ocr_text": req.ocr_text,
+            } if req.image_url else None,
             message_id=req.edit_message_id, # if value or none
             vector_db=vector_db,  # only used if rag_tool
         )
@@ -70,6 +75,7 @@ async def chat_stream_endpoint(
                 "llms": request.app.state.llms,
                 "allowed_tools": allowed_tools,
                 "tool_registry_version": tool_registry.version,
+                "provider": VISION_PROVIDER,
                 "trace": {
                     "start_ts": time.perf_counter(),
                     "events": [],
@@ -101,6 +107,8 @@ async def chat_stream_endpoint(
                 "messages": [HumanMessage(content=req.query)],
                 "thread_id": str(req.thread_id),
                 "user_id": str(user.id),
+                "image_url": req.image_url,
+                "ocr_text": req.ocr_text,
             }
 
 

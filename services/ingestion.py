@@ -1,6 +1,7 @@
 from db.models import Document, DocumentChunk
 from sqlalchemy.ext.asyncio import AsyncSession
-from services.vector_db_faiss import FAISSVectorDB
+# from services.vector_db_faiss import FAISSVectorDB
+from services.vector_db_qdrant_rag import QdrantVectorDBRAG
 from core.config import MAX_CHUNK_CHARS, MIME_MAP
 from langchain_core.documents import Document
 
@@ -30,7 +31,8 @@ class DocumentIngestor:
         document_path: str,
         document_name: str,
         thread_id: str,
-        vector_db: FAISSVectorDB,
+        user_id: int,
+        vector_db: QdrantVectorDBRAG,
     ):
         # Extract chunks asynchronously
         text_chunks = await self._extract_chunks(document_path)
@@ -63,6 +65,7 @@ class DocumentIngestor:
 
         # store in FAISS (thread isolated)
         await vector_db.add_documents(
+            user_id=user_id,
             thread_id=str(thread_id),
             documents=lc_docs,
             db=self.db

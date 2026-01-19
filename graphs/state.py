@@ -24,6 +24,8 @@ class ChatState(TypedDict):
     # Conversation
     messages: Annotated[list[BaseMessage], add_messages]
     __bg_messages__: list[BaseMessage]
+    image_url: Optional[str]
+    ocr_text: Optional[str]
 
     # Routing / Intent
     intent: Optional[Literal["rag", "expense", "other_tool", "chat"]]
